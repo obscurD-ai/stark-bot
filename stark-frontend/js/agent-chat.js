@@ -300,6 +300,12 @@ async function handleSendMessage(event) {
         const data = await response.json();
 
         if (data.success && data.message) {
+            // Show which tools were used, if any
+            if (data.tools_used && data.tools_used.length > 0) {
+                const toolNames = data.tools_used.join(', ');
+                addMessage(`Used tools: ${toolNames}`, 'tool-indicator');
+            }
+
             addMessage(data.message.content, 'assistant');
             conversationHistory.push({ role: 'assistant', content: data.message.content });
             messageCount++;
@@ -613,6 +619,20 @@ function addMessage(content, role) {
                     <div class="text-slate-300 text-sm whitespace-pre-wrap">${formattedContent}</div>
                 </div>
                 <p class="text-xs text-slate-500 mt-1 ml-2">${time}</p>
+            </div>
+        `;
+    } else if (role === 'tool-indicator') {
+        messageDiv.innerHTML = `
+            <div class="w-8 h-8 bg-amber-500/20 rounded-full flex-shrink-0 flex items-center justify-center">
+                <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+            </div>
+            <div class="flex-1">
+                <div class="inline-flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1">
+                    <span class="text-amber-400 text-xs font-medium">${escapeHtml(content)}</span>
+                </div>
             </div>
         `;
     } else if (role === 'error') {

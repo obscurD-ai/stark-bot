@@ -4,7 +4,7 @@ pub mod telegram;
 pub mod types;
 
 pub use dispatcher::MessageDispatcher;
-pub use types::ChannelHandle;
+pub use types::{ChannelHandle, NormalizedMessage};
 
 use crate::db::Database;
 use crate::gateway::events::EventBroadcaster;

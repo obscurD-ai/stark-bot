@@ -15,6 +15,7 @@ mod models;
 mod skills;
 mod tools;
 
+use channels::MessageDispatcher;
 use config::Config;
 use db::Database;
 use gateway::Gateway;
@@ -27,6 +28,7 @@ pub struct AppState {
     pub gateway: Arc<Gateway>,
     pub tool_registry: Arc<ToolRegistry>,
     pub skill_registry: Arc<SkillRegistry>,
+    pub dispatcher: Arc<MessageDispatcher>,
 }
 
 #[actix_web::main]
@@ -62,6 +64,14 @@ async fn main() -> std::io::Result<()> {
     log::info!("Initializing Gateway");
     let gateway = Arc::new(Gateway::new_with_tools(db.clone(), tool_registry.clone()));
 
+    // Create the shared MessageDispatcher for all message processing
+    log::info!("Initializing message dispatcher");
+    let dispatcher = Arc::new(MessageDispatcher::new(
+        db.clone(),
+        gateway.broadcaster().clone(),
+        tool_registry.clone(),
+    ));
+
     // Start Gateway WebSocket server
     let gw = gateway.clone();
     tokio::spawn(async move {
@@ -77,6 +87,7 @@ async fn main() -> std::io::Result<()> {
 
     let tool_reg = tool_registry.clone();
     let skill_reg = skill_registry.clone();
+    let disp = dispatcher.clone();
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -92,6 +103,7 @@ async fn main() -> std::io::Result<()> {
                 gateway: Arc::clone(&gateway),
                 tool_registry: Arc::clone(&tool_reg),
                 skill_registry: Arc::clone(&skill_reg),
+                dispatcher: Arc::clone(&disp),
             }))
             .wrap(Logger::default())
             .wrap(cors)

@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function initializeGateway() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsPort = 8766; // Gateway port
+    const wsPort = 8081; // Gateway port (matches GATEWAY_PORT env var default)
     const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}`;
 
     document.getElementById('gateway-url').textContent = wsUrl;

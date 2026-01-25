@@ -3,6 +3,7 @@ pub mod api_keys;
 pub mod auth;
 pub mod channels;
 pub mod chat;
+pub mod cron;
 pub mod dashboard;
 pub mod health;
 pub mod identity;

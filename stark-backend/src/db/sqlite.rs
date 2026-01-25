@@ -313,6 +313,81 @@ impl Database {
             [],
         )?;
 
+        // Cron jobs table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                schedule_type TEXT NOT NULL,
+                schedule_value TEXT NOT NULL,
+                timezone TEXT,
+                session_mode TEXT NOT NULL DEFAULT 'isolated',
+                message TEXT,
+                system_event TEXT,
+                channel_id INTEGER,
+                deliver_to TEXT,
+                deliver INTEGER NOT NULL DEFAULT 0,
+                model_override TEXT,
+                thinking_level TEXT,
+                timeout_seconds INTEGER,
+                delete_after_run INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                last_run_at TEXT,
+                next_run_at TEXT,
+                run_count INTEGER NOT NULL DEFAULT 0,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+
+        // Cron job runs history
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS cron_job_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                success INTEGER NOT NULL DEFAULT 0,
+                result TEXT,
+                error TEXT,
+                duration_ms INTEGER,
+                FOREIGN KEY (job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Index for job runs lookup
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cron_job_runs_job ON cron_job_runs(job_id, started_at DESC)",
+            [],
+        )?;
+
+        // Heartbeat configuration table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS heartbeat_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id INTEGER UNIQUE,
+                interval_minutes INTEGER NOT NULL DEFAULT 30,
+                target TEXT NOT NULL DEFAULT 'last',
+                active_hours_start TEXT,
+                active_hours_end TEXT,
+                active_days TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_beat_at TEXT,
+                next_beat_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -2138,5 +2213,520 @@ impl Database {
             [skill_id],
         )?;
         Ok(rows_affected as i64)
+    }
+
+    // =============================================================
+    // Cron Job Methods
+    // =============================================================
+
+    /// Create a new cron job
+    pub fn create_cron_job(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        schedule_type: &str,
+        schedule_value: &str,
+        timezone: Option<&str>,
+        session_mode: &str,
+        message: Option<&str>,
+        system_event: Option<&str>,
+        channel_id: Option<i64>,
+        deliver_to: Option<&str>,
+        deliver: bool,
+        model_override: Option<&str>,
+        thinking_level: Option<&str>,
+        timeout_seconds: Option<i32>,
+        delete_after_run: bool,
+    ) -> SqliteResult<crate::models::CronJob> {
+        let conn = self.conn.lock().unwrap();
+        let job_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "INSERT INTO cron_jobs (
+                job_id, name, description, schedule_type, schedule_value, timezone,
+                session_mode, message, system_event, channel_id, deliver_to, deliver,
+                model_override, thinking_level, timeout_seconds, delete_after_run,
+                status, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'active', ?17, ?17)",
+            rusqlite::params![
+                job_id, name, description, schedule_type, schedule_value, timezone,
+                session_mode, message, system_event, channel_id, deliver_to, deliver as i32,
+                model_override, thinking_level, timeout_seconds, delete_after_run as i32,
+                now
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+        self.get_cron_job_by_id_internal(&conn, id)
+    }
+
+    fn get_cron_job_by_id_internal(&self, conn: &Connection, id: i64) -> SqliteResult<crate::models::CronJob> {
+        conn.query_row(
+            "SELECT id, job_id, name, description, schedule_type, schedule_value, timezone,
+                    session_mode, message, system_event, channel_id, deliver_to, deliver,
+                    model_override, thinking_level, timeout_seconds, delete_after_run,
+                    status, last_run_at, next_run_at, run_count, error_count, last_error,
+                    created_at, updated_at
+             FROM cron_jobs WHERE id = ?1",
+            [id],
+            |row| self.map_cron_job_row(row),
+        )
+    }
+
+    fn map_cron_job_row(&self, row: &rusqlite::Row) -> SqliteResult<crate::models::CronJob> {
+        Ok(crate::models::CronJob {
+            id: row.get(0)?,
+            job_id: row.get(1)?,
+            name: row.get(2)?,
+            description: row.get(3)?,
+            schedule_type: row.get(4)?,
+            schedule_value: row.get(5)?,
+            timezone: row.get(6)?,
+            session_mode: row.get(7)?,
+            message: row.get(8)?,
+            system_event: row.get(9)?,
+            channel_id: row.get(10)?,
+            deliver_to: row.get(11)?,
+            deliver: row.get::<_, i32>(12)? != 0,
+            model_override: row.get(13)?,
+            thinking_level: row.get(14)?,
+            timeout_seconds: row.get(15)?,
+            delete_after_run: row.get::<_, i32>(16)? != 0,
+            status: row.get(17)?,
+            last_run_at: row.get(18)?,
+            next_run_at: row.get(19)?,
+            run_count: row.get(20)?,
+            error_count: row.get(21)?,
+            last_error: row.get(22)?,
+            created_at: row.get(23)?,
+            updated_at: row.get(24)?,
+        })
+    }
+
+    /// Get a cron job by ID
+    pub fn get_cron_job(&self, id: i64) -> SqliteResult<Option<crate::models::CronJob>> {
+        let conn = self.conn.lock().unwrap();
+        match self.get_cron_job_by_id_internal(&conn, id) {
+            Ok(job) => Ok(Some(job)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Get a cron job by job_id (UUID string)
+    pub fn get_cron_job_by_job_id(&self, job_id: &str) -> SqliteResult<Option<crate::models::CronJob>> {
+        let conn = self.conn.lock().unwrap();
+        match conn.query_row(
+            "SELECT id, job_id, name, description, schedule_type, schedule_value, timezone,
+                    session_mode, message, system_event, channel_id, deliver_to, deliver,
+                    model_override, thinking_level, timeout_seconds, delete_after_run,
+                    status, last_run_at, next_run_at, run_count, error_count, last_error,
+                    created_at, updated_at
+             FROM cron_jobs WHERE job_id = ?1",
+            [job_id],
+            |row| self.map_cron_job_row(row),
+        ) {
+            Ok(job) => Ok(Some(job)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// List all cron jobs
+    pub fn list_cron_jobs(&self) -> SqliteResult<Vec<crate::models::CronJob>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, job_id, name, description, schedule_type, schedule_value, timezone,
+                    session_mode, message, system_event, channel_id, deliver_to, deliver,
+                    model_override, thinking_level, timeout_seconds, delete_after_run,
+                    status, last_run_at, next_run_at, run_count, error_count, last_error,
+                    created_at, updated_at
+             FROM cron_jobs ORDER BY created_at DESC"
+        )?;
+
+        let jobs: Vec<crate::models::CronJob> = stmt
+            .query_map([], |row| self.map_cron_job_row(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(jobs)
+    }
+
+    /// List active cron jobs that are due to run
+    pub fn list_due_cron_jobs(&self) -> SqliteResult<Vec<crate::models::CronJob>> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, job_id, name, description, schedule_type, schedule_value, timezone,
+                    session_mode, message, system_event, channel_id, deliver_to, deliver,
+                    model_override, thinking_level, timeout_seconds, delete_after_run,
+                    status, last_run_at, next_run_at, run_count, error_count, last_error,
+                    created_at, updated_at
+             FROM cron_jobs
+             WHERE status = 'active' AND (next_run_at IS NULL OR next_run_at <= ?1)
+             ORDER BY next_run_at ASC"
+        )?;
+
+        let jobs: Vec<crate::models::CronJob> = stmt
+            .query_map([&now], |row| self.map_cron_job_row(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(jobs)
+    }
+
+    /// Update a cron job
+    pub fn update_cron_job(
+        &self,
+        id: i64,
+        name: Option<&str>,
+        description: Option<&str>,
+        schedule_type: Option<&str>,
+        schedule_value: Option<&str>,
+        timezone: Option<&str>,
+        session_mode: Option<&str>,
+        message: Option<&str>,
+        system_event: Option<&str>,
+        channel_id: Option<i64>,
+        deliver_to: Option<&str>,
+        deliver: Option<bool>,
+        model_override: Option<&str>,
+        thinking_level: Option<&str>,
+        timeout_seconds: Option<i32>,
+        delete_after_run: Option<bool>,
+        status: Option<&str>,
+    ) -> SqliteResult<crate::models::CronJob> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        // Build dynamic update query
+        let mut updates = vec!["updated_at = ?1".to_string()];
+        let mut param_index = 2;
+
+        if name.is_some() { updates.push(format!("name = ?{}", param_index)); param_index += 1; }
+        if description.is_some() { updates.push(format!("description = ?{}", param_index)); param_index += 1; }
+        if schedule_type.is_some() { updates.push(format!("schedule_type = ?{}", param_index)); param_index += 1; }
+        if schedule_value.is_some() { updates.push(format!("schedule_value = ?{}", param_index)); param_index += 1; }
+        if timezone.is_some() { updates.push(format!("timezone = ?{}", param_index)); param_index += 1; }
+        if session_mode.is_some() { updates.push(format!("session_mode = ?{}", param_index)); param_index += 1; }
+        if message.is_some() { updates.push(format!("message = ?{}", param_index)); param_index += 1; }
+        if system_event.is_some() { updates.push(format!("system_event = ?{}", param_index)); param_index += 1; }
+        if channel_id.is_some() { updates.push(format!("channel_id = ?{}", param_index)); param_index += 1; }
+        if deliver_to.is_some() { updates.push(format!("deliver_to = ?{}", param_index)); param_index += 1; }
+        if deliver.is_some() { updates.push(format!("deliver = ?{}", param_index)); param_index += 1; }
+        if model_override.is_some() { updates.push(format!("model_override = ?{}", param_index)); param_index += 1; }
+        if thinking_level.is_some() { updates.push(format!("thinking_level = ?{}", param_index)); param_index += 1; }
+        if timeout_seconds.is_some() { updates.push(format!("timeout_seconds = ?{}", param_index)); param_index += 1; }
+        if delete_after_run.is_some() { updates.push(format!("delete_after_run = ?{}", param_index)); param_index += 1; }
+        if status.is_some() { updates.push(format!("status = ?{}", param_index)); param_index += 1; }
+
+        let query = format!(
+            "UPDATE cron_jobs SET {} WHERE id = ?{}",
+            updates.join(", "),
+            param_index
+        );
+
+        // Build params dynamically
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(now)];
+        if let Some(v) = name { params.push(Box::new(v.to_string())); }
+        if let Some(v) = description { params.push(Box::new(v.to_string())); }
+        if let Some(v) = schedule_type { params.push(Box::new(v.to_string())); }
+        if let Some(v) = schedule_value { params.push(Box::new(v.to_string())); }
+        if let Some(v) = timezone { params.push(Box::new(v.to_string())); }
+        if let Some(v) = session_mode { params.push(Box::new(v.to_string())); }
+        if let Some(v) = message { params.push(Box::new(v.to_string())); }
+        if let Some(v) = system_event { params.push(Box::new(v.to_string())); }
+        if let Some(v) = channel_id { params.push(Box::new(v)); }
+        if let Some(v) = deliver_to { params.push(Box::new(v.to_string())); }
+        if let Some(v) = deliver { params.push(Box::new(v as i32)); }
+        if let Some(v) = model_override { params.push(Box::new(v.to_string())); }
+        if let Some(v) = thinking_level { params.push(Box::new(v.to_string())); }
+        if let Some(v) = timeout_seconds { params.push(Box::new(v)); }
+        if let Some(v) = delete_after_run { params.push(Box::new(v as i32)); }
+        if let Some(v) = status { params.push(Box::new(v.to_string())); }
+        params.push(Box::new(id));
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&query, params_refs.as_slice())?;
+
+        self.get_cron_job_by_id_internal(&conn, id)
+    }
+
+    /// Update cron job run status
+    pub fn update_cron_job_run_status(
+        &self,
+        id: i64,
+        last_run_at: &str,
+        next_run_at: Option<&str>,
+        success: bool,
+        error: Option<&str>,
+    ) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        if success {
+            conn.execute(
+                "UPDATE cron_jobs SET
+                    last_run_at = ?1, next_run_at = ?2, run_count = run_count + 1,
+                    last_error = NULL, updated_at = ?3
+                 WHERE id = ?4",
+                rusqlite::params![last_run_at, next_run_at, now, id],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE cron_jobs SET
+                    last_run_at = ?1, next_run_at = ?2, error_count = error_count + 1,
+                    last_error = ?3, updated_at = ?4
+                 WHERE id = ?5",
+                rusqlite::params![last_run_at, next_run_at, error, now, id],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Delete a cron job
+    pub fn delete_cron_job(&self, id: i64) -> SqliteResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let rows_affected = conn.execute("DELETE FROM cron_jobs WHERE id = ?1", [id])?;
+        Ok(rows_affected > 0)
+    }
+
+    /// Log a cron job run
+    pub fn log_cron_job_run(
+        &self,
+        job_id: i64,
+        started_at: &str,
+        completed_at: Option<&str>,
+        success: bool,
+        result: Option<&str>,
+        error: Option<&str>,
+        duration_ms: Option<i64>,
+    ) -> SqliteResult<crate::models::CronJobRun> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "INSERT INTO cron_job_runs (job_id, started_at, completed_at, success, result, error, duration_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![job_id, started_at, completed_at, success as i32, result, error, duration_ms],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        Ok(crate::models::CronJobRun {
+            id,
+            job_id,
+            started_at: started_at.to_string(),
+            completed_at: completed_at.map(|s| s.to_string()),
+            success,
+            result: result.map(|s| s.to_string()),
+            error: error.map(|s| s.to_string()),
+            duration_ms,
+        })
+    }
+
+    /// Get recent runs for a cron job
+    pub fn get_cron_job_runs(&self, job_id: i64, limit: i32) -> SqliteResult<Vec<crate::models::CronJobRun>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, job_id, started_at, completed_at, success, result, error, duration_ms
+             FROM cron_job_runs WHERE job_id = ?1 ORDER BY started_at DESC LIMIT ?2"
+        )?;
+
+        let runs: Vec<crate::models::CronJobRun> = stmt
+            .query_map([job_id, limit as i64], |row| {
+                Ok(crate::models::CronJobRun {
+                    id: row.get(0)?,
+                    job_id: row.get(1)?,
+                    started_at: row.get(2)?,
+                    completed_at: row.get(3)?,
+                    success: row.get::<_, i32>(4)? != 0,
+                    result: row.get(5)?,
+                    error: row.get(6)?,
+                    duration_ms: row.get(7)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(runs)
+    }
+
+    // =============================================================
+    // Heartbeat Config Methods
+    // =============================================================
+
+    /// Get or create heartbeat config for a channel (or global if channel_id is None)
+    pub fn get_or_create_heartbeat_config(&self, channel_id: Option<i64>) -> SqliteResult<crate::models::HeartbeatConfig> {
+        let conn = self.conn.lock().unwrap();
+
+        // Try to get existing config
+        let existing = if let Some(cid) = channel_id {
+            conn.query_row(
+                "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
+                        active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                 FROM heartbeat_configs WHERE channel_id = ?1",
+                [cid],
+                |row| self.map_heartbeat_config_row(row),
+            ).ok()
+        } else {
+            conn.query_row(
+                "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
+                        active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                 FROM heartbeat_configs WHERE channel_id IS NULL",
+                [],
+                |row| self.map_heartbeat_config_row(row),
+            ).ok()
+        };
+
+        if let Some(config) = existing {
+            return Ok(config);
+        }
+
+        // Create new config
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO heartbeat_configs (channel_id, interval_minutes, target, enabled, created_at, updated_at)
+             VALUES (?1, 30, 'last', 1, ?2, ?2)",
+            rusqlite::params![channel_id, now],
+        )?;
+
+        let id = conn.last_insert_rowid();
+
+        Ok(crate::models::HeartbeatConfig {
+            id,
+            channel_id,
+            interval_minutes: 30,
+            target: "last".to_string(),
+            active_hours_start: None,
+            active_hours_end: None,
+            active_days: None,
+            enabled: true,
+            last_beat_at: None,
+            next_beat_at: None,
+            created_at: now.clone(),
+            updated_at: now,
+        })
+    }
+
+    fn map_heartbeat_config_row(&self, row: &rusqlite::Row) -> SqliteResult<crate::models::HeartbeatConfig> {
+        Ok(crate::models::HeartbeatConfig {
+            id: row.get(0)?,
+            channel_id: row.get(1)?,
+            interval_minutes: row.get(2)?,
+            target: row.get(3)?,
+            active_hours_start: row.get(4)?,
+            active_hours_end: row.get(5)?,
+            active_days: row.get(6)?,
+            enabled: row.get::<_, i32>(7)? != 0,
+            last_beat_at: row.get(8)?,
+            next_beat_at: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        })
+    }
+
+    /// Update heartbeat config
+    pub fn update_heartbeat_config(
+        &self,
+        id: i64,
+        interval_minutes: Option<i32>,
+        target: Option<&str>,
+        active_hours_start: Option<&str>,
+        active_hours_end: Option<&str>,
+        active_days: Option<&str>,
+        enabled: Option<bool>,
+    ) -> SqliteResult<crate::models::HeartbeatConfig> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        let mut updates = vec!["updated_at = ?1".to_string()];
+        let mut param_index = 2;
+
+        if interval_minutes.is_some() { updates.push(format!("interval_minutes = ?{}", param_index)); param_index += 1; }
+        if target.is_some() { updates.push(format!("target = ?{}", param_index)); param_index += 1; }
+        if active_hours_start.is_some() { updates.push(format!("active_hours_start = ?{}", param_index)); param_index += 1; }
+        if active_hours_end.is_some() { updates.push(format!("active_hours_end = ?{}", param_index)); param_index += 1; }
+        if active_days.is_some() { updates.push(format!("active_days = ?{}", param_index)); param_index += 1; }
+        if enabled.is_some() { updates.push(format!("enabled = ?{}", param_index)); param_index += 1; }
+
+        let query = format!(
+            "UPDATE heartbeat_configs SET {} WHERE id = ?{}",
+            updates.join(", "),
+            param_index
+        );
+
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(now)];
+        if let Some(v) = interval_minutes { params.push(Box::new(v)); }
+        if let Some(v) = target { params.push(Box::new(v.to_string())); }
+        if let Some(v) = active_hours_start { params.push(Box::new(v.to_string())); }
+        if let Some(v) = active_hours_end { params.push(Box::new(v.to_string())); }
+        if let Some(v) = active_days { params.push(Box::new(v.to_string())); }
+        if let Some(v) = enabled { params.push(Box::new(v as i32)); }
+        params.push(Box::new(id));
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&query, params_refs.as_slice())?;
+
+        conn.query_row(
+            "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
+                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+             FROM heartbeat_configs WHERE id = ?1",
+            [id],
+            |row| self.map_heartbeat_config_row(row),
+        )
+    }
+
+    /// Update heartbeat last run time
+    pub fn update_heartbeat_last_beat(&self, id: i64, last_beat_at: &str, next_beat_at: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE heartbeat_configs SET last_beat_at = ?1, next_beat_at = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![last_beat_at, next_beat_at, now, id],
+        )?;
+
+        Ok(())
+    }
+
+    /// List all heartbeat configs
+    pub fn list_heartbeat_configs(&self) -> SqliteResult<Vec<crate::models::HeartbeatConfig>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
+                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+             FROM heartbeat_configs ORDER BY id"
+        )?;
+
+        let configs: Vec<crate::models::HeartbeatConfig> = stmt
+            .query_map([], |row| self.map_heartbeat_config_row(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(configs)
+    }
+
+    /// Get enabled heartbeat configs that are due to run
+    pub fn list_due_heartbeat_configs(&self) -> SqliteResult<Vec<crate::models::HeartbeatConfig>> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
+                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+             FROM heartbeat_configs
+             WHERE enabled = 1 AND (next_beat_at IS NULL OR next_beat_at <= ?1)
+             ORDER BY next_beat_at ASC"
+        )?;
+
+        let configs: Vec<crate::models::HeartbeatConfig> = stmt
+            .query_map([&now], |row| self.map_heartbeat_config_row(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(configs)
     }
 }

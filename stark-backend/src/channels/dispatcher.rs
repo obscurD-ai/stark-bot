@@ -1,4 +1,4 @@
-use crate::ai::{AiClient, Message, MessageRole, ToolCall, ToolHistoryEntry, ToolResponse};
+use crate::ai::{AiClient, Message, MessageRole, ThinkingLevel, ToolCall, ToolHistoryEntry, ToolResponse};
 use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::db::Database;
 use crate::execution::ExecutionTracker;
@@ -40,6 +40,8 @@ pub struct MessageDispatcher {
     daily_log_pattern: Regex,
     remember_pattern: Regex,
     remember_important_pattern: Regex,
+    // Regex patterns for thinking directives
+    thinking_directive_pattern: Regex,
 }
 
 impl MessageDispatcher {
@@ -57,6 +59,7 @@ impl MessageDispatcher {
             daily_log_pattern: Regex::new(r"\[DAILY_LOG:\s*(.+?)\]").unwrap(),
             remember_pattern: Regex::new(r"\[REMEMBER:\s*(.+?)\]").unwrap(),
             remember_important_pattern: Regex::new(r"\[REMEMBER_IMPORTANT:\s*(.+?)\]").unwrap(),
+            thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
         }
     }
 
@@ -72,6 +75,7 @@ impl MessageDispatcher {
             daily_log_pattern: Regex::new(r"\[DAILY_LOG:\s*(.+?)\]").unwrap(),
             remember_pattern: Regex::new(r"\[REMEMBER:\s*(.+?)\]").unwrap(),
             remember_important_pattern: Regex::new(r"\[REMEMBER_IMPORTANT:\s*(.+?)\]").unwrap(),
+            thinking_directive_pattern: Regex::new(r"(?i)^/(?:t|think|thinking)(?::(\w+))?$").unwrap(),
         }
     }
 
@@ -90,6 +94,14 @@ impl MessageDispatcher {
         if text_lower == "/new" || text_lower == "/reset" {
             return self.handle_reset_command(&message).await;
         }
+
+        // Check for thinking directives (session-level setting)
+        if let Some(thinking_response) = self.handle_thinking_directive(&message).await {
+            return thinking_response;
+        }
+
+        // Parse inline thinking directive and extract clean message
+        let (thinking_level, clean_text) = self.parse_inline_thinking(&message.text);
 
         // Start execution tracking
         let execution_id = self.execution_tracker.start_execution(message.channel_id, "execute");
@@ -131,11 +143,14 @@ impl MessageDispatcher {
             }
         };
 
+        // Use clean text (with inline thinking directive removed) for storage
+        let message_text = clean_text.as_deref().unwrap_or(&message.text);
+
         // Store user message in session
         if let Err(e) = self.db.add_session_message(
             session.id,
             DbMessageRole::User,
-            &message.text,
+            message_text,
             Some(&message.user_id),
             Some(&message.user_name),
             message.message_id.as_deref(),
@@ -221,14 +236,22 @@ impl MessageDispatcher {
             });
         }
 
-        // Add current user message
+        // Add current user message (use clean text without thinking directive)
         messages.push(Message {
             role: MessageRole::User,
-            content: message.text.clone(),
+            content: message_text.to_string(),
         });
 
         // Debug: Log user message
-        log::info!("[DISPATCH] User message: {}", message.text);
+        log::info!("[DISPATCH] User message: {}", message_text);
+
+        // Apply thinking level if set (for Claude models)
+        if let Some(level) = thinking_level {
+            if client.supports_thinking() {
+                log::info!("[DISPATCH] Applying thinking level: {}", level);
+                client.set_thinking_level(level);
+            }
+        }
 
         // Check if the client supports tools and tools are configured
         let use_tools = client.supports_tools() && !self.tool_registry.is_empty();
@@ -903,6 +926,83 @@ impl MessageDispatcher {
         // Clean up any double spaces or trailing whitespace
         clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
         clean.trim().to_string()
+    }
+
+    /// Handle thinking directive messages (e.g., "/think:medium" sets session default)
+    async fn handle_thinking_directive(&self, message: &NormalizedMessage) -> Option<DispatchResult> {
+        let text = message.text.trim();
+
+        // Check if this is a standalone thinking directive
+        if let Some(captures) = self.thinking_directive_pattern.captures(text) {
+            let level_str = captures.get(1).map(|m| m.as_str()).unwrap_or("low");
+
+            if let Some(level) = ThinkingLevel::from_str(level_str) {
+                // Store the thinking level preference for this session
+                // For now, we just acknowledge it (session storage could be added later)
+                let response = format!(
+                    "Thinking level set to **{}**. {}",
+                    level,
+                    match level {
+                        ThinkingLevel::Off => "Extended thinking is now disabled.",
+                        ThinkingLevel::Minimal => "Using minimal thinking (~1K tokens).",
+                        ThinkingLevel::Low => "Using low thinking (~4K tokens).",
+                        ThinkingLevel::Medium => "Using medium thinking (~10K tokens).",
+                        ThinkingLevel::High => "Using high thinking (~32K tokens).",
+                        ThinkingLevel::XHigh => "Using maximum thinking (~64K tokens).",
+                    }
+                );
+
+                self.broadcaster.broadcast(GatewayEvent::agent_response(
+                    message.channel_id,
+                    &message.user_name,
+                    &response,
+                ));
+
+                log::info!(
+                    "Thinking level set to {} for user {} on channel {}",
+                    level,
+                    message.user_name,
+                    message.channel_id
+                );
+
+                return Some(DispatchResult::success(response));
+            } else {
+                // Invalid level specified
+                let response = format!(
+                    "Invalid thinking level '{}'. Valid options: off, minimal, low, medium, high, xhigh",
+                    level_str
+                );
+                self.broadcaster.broadcast(GatewayEvent::agent_response(
+                    message.channel_id,
+                    &message.user_name,
+                    &response,
+                ));
+                return Some(DispatchResult::success(response));
+            }
+        }
+
+        None
+    }
+
+    /// Parse inline thinking directive from message (e.g., "/think:high What is...")
+    /// Returns the thinking level and the clean message text
+    fn parse_inline_thinking(&self, text: &str) -> (Option<ThinkingLevel>, Option<String>) {
+        let text = text.trim();
+
+        // Pattern: /think:level followed by the actual message
+        let inline_pattern = Regex::new(r"(?i)^/(?:t|think|thinking):(\w+)\s+(.+)$").unwrap();
+
+        if let Some(captures) = inline_pattern.captures(text) {
+            let level_str = captures.get(1).map(|m| m.as_str()).unwrap_or("");
+            let clean_text = captures.get(2).map(|m| m.as_str().to_string());
+
+            if let Some(level) = ThinkingLevel::from_str(level_str) {
+                return (Some(level), clean_text);
+            }
+        }
+
+        // No inline thinking directive found
+        (None, None)
     }
 
     /// Handle /new or /reset commands

@@ -30,11 +30,20 @@ teloxide = { version = "0.12", features = ["macros"] }
 # Slack integration
 slack-morphism = { version = "2", features = ["hyper"] }
 
+# Discord integration
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"] }
+
 # Concurrent state management
 dashmap = "5"
 
 # Regex for memory marker parsing
 regex = "1"
+
+# URL parsing
+url = "2"
+
+# Cron scheduling
+cron = "0.12"
 
 # Tools system
 which = "5"

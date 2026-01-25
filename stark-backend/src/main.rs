@@ -13,6 +13,7 @@ mod execution;
 mod gateway;
 mod middleware;
 mod models;
+mod scheduler;
 mod skills;
 mod tools;
 
@@ -21,6 +22,7 @@ use config::Config;
 use db::Database;
 use execution::ExecutionTracker;
 use gateway::Gateway;
+use scheduler::{Scheduler, SchedulerConfig};
 use skills::SkillRegistry;
 use tools::ToolRegistry;
 
@@ -32,6 +34,7 @@ pub struct AppState {
     pub skill_registry: Arc<SkillRegistry>,
     pub dispatcher: Arc<MessageDispatcher>,
     pub execution_tracker: Arc<ExecutionTracker>,
+    pub scheduler: Arc<Scheduler>,
 }
 
 #[actix_web::main]
@@ -90,13 +93,32 @@ async fn main() -> std::io::Result<()> {
     log::info!("Starting enabled channels");
     gateway.start_enabled_channels().await;
 
+    // Initialize and start the scheduler
+    log::info!("Initializing scheduler");
+    let scheduler_config = SchedulerConfig::default();
+    let scheduler = Arc::new(Scheduler::new(
+        db.clone(),
+        dispatcher.clone(),
+        gateway.broadcaster().clone(),
+        scheduler_config,
+    ));
+
+    // Start scheduler background task
+    let scheduler_handle = Arc::clone(&scheduler);
+    let (scheduler_shutdown_tx, scheduler_shutdown_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        scheduler_handle.start(scheduler_shutdown_rx).await;
+    });
+
     log::info!("Starting StarkBot server on port {}", port);
     log::info!("Gateway WebSocket server on port {}", gateway_port);
+    log::info!("Scheduler started with cron and heartbeat support");
 
     let tool_reg = tool_registry.clone();
     let skill_reg = skill_registry.clone();
     let disp = dispatcher.clone();
     let exec_tracker = execution_tracker.clone();
+    let sched = scheduler.clone();
 
     HttpServer::new(move || {
         let cors = Cors::default()
@@ -114,7 +136,9 @@ async fn main() -> std::io::Result<()> {
                 skill_registry: Arc::clone(&skill_reg),
                 dispatcher: Arc::clone(&disp),
                 execution_tracker: Arc::clone(&exec_tracker),
+                scheduler: Arc::clone(&sched),
             }))
+            .app_data(web::Data::new(Arc::clone(&sched)))
             .wrap(Logger::default())
             .wrap(cors)
             .configure(controllers::health::config)
@@ -129,6 +153,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::identity::config)
             .configure(controllers::tools::config)
             .configure(controllers::skills::config)
+            .configure(controllers::cron::config)
             // Serve static files, with SPA fallback to index.html for client-side routing
             .service(
                 Files::new("/", "./stark-frontend/dist")

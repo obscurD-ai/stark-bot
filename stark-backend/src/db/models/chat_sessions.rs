@@ -13,6 +13,7 @@ impl Database {
     }
 
     /// Get or create a chat session, handling reset policy
+    /// Uses atomic upsert to handle concurrent requests safely
     pub fn get_or_create_chat_session(
         &self,
         channel_type: &str,
@@ -25,107 +26,82 @@ impl Database {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 
-        // Try to get existing session (active or inactive)
-        if let Some(mut session) = self.get_chat_session_by_key(&session_key)? {
-            // If session is inactive, reactivate it and clear old messages
-            if !session.is_active {
-                let conn = self.conn.lock().unwrap();
-                // Reactivate the session
-                conn.execute(
-                    "UPDATE chat_sessions SET is_active = 1, last_activity_at = ?1, updated_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now_str, session.id],
-                )?;
-                // Clear old messages from the reactivated session
-                conn.execute(
-                    "DELETE FROM session_messages WHERE session_id = ?1",
-                    [session.id],
-                )?;
-                drop(conn);
-                session.is_active = true;
-                session.last_activity_at = now;
-                session.updated_at = now;
-                return Ok(session);
-            }
-
-            // Check if session needs reset based on policy
-            let should_reset = match session.reset_policy {
-                ResetPolicy::Daily => {
-                    let reset_hour = session.daily_reset_hour.unwrap_or(0);
-                    let last_activity = session.last_activity_at;
-                    let last_day = last_activity.date_naive();
-                    let today = now.date_naive();
-
-                    if today > last_day {
-                        // Check if we've passed the reset hour today
-                        now.hour() >= reset_hour as u32
-                    } else {
-                        false
-                    }
-                }
-                ResetPolicy::Idle => {
-                    if let Some(timeout) = session.idle_timeout_minutes {
-                        let idle_duration = now.signed_duration_since(session.last_activity_at);
-                        idle_duration.num_minutes() > timeout as i64
-                    } else {
-                        false
-                    }
-                }
-                ResetPolicy::Manual | ResetPolicy::Never => false,
-            };
-
-            if should_reset {
-                // Reset the session (clear messages, update timestamps)
-                let conn = self.conn.lock().unwrap();
-                conn.execute(
-                    "DELETE FROM session_messages WHERE session_id = ?1",
-                    [session.id],
-                )?;
-                conn.execute(
-                    "UPDATE chat_sessions SET last_activity_at = ?1, updated_at = ?1, compaction_id = NULL WHERE id = ?2",
-                    rusqlite::params![&now_str, session.id],
-                )?;
-                drop(conn);
-                session.last_activity_at = now;
-                session.updated_at = now;
-                session.compaction_id = None;
-            } else {
-                // Update last activity
-                let conn = self.conn.lock().unwrap();
-                conn.execute(
-                    "UPDATE chat_sessions SET last_activity_at = ?1, updated_at = ?1 WHERE id = ?2",
-                    rusqlite::params![&now_str, session.id],
-                )?;
-                session.last_activity_at = now;
-                session.updated_at = now;
-            }
-
-            return Ok(session);
+        // Atomic upsert: INSERT or UPDATE if exists
+        // This handles race conditions where multiple messages arrive simultaneously
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO chat_sessions (session_key, agent_id, scope, channel_type, channel_id, platform_chat_id,
+                 is_active, reset_policy, idle_timeout_minutes, daily_reset_hour, created_at, updated_at, last_activity_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?10, ?10)
+                 ON CONFLICT(session_key) DO UPDATE SET
+                     is_active = 1,
+                     updated_at = excluded.updated_at,
+                     last_activity_at = excluded.last_activity_at",
+                rusqlite::params![
+                    &session_key,
+                    agent_id,
+                    scope.as_str(),
+                    channel_type,
+                    channel_id,
+                    platform_chat_id,
+                    ResetPolicy::default().as_str(),
+                    Option::<i32>::None,
+                    Some(0i32),
+                    &now_str,
+                ],
+            )?;
         }
 
-        // Create new session
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO chat_sessions (session_key, agent_id, scope, channel_type, channel_id, platform_chat_id,
-             is_active, reset_policy, idle_timeout_minutes, daily_reset_hour, created_at, updated_at, last_activity_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, ?9, ?10, ?10, ?10)",
-            rusqlite::params![
-                &session_key,
-                agent_id,
-                scope.as_str(),
-                channel_type,
-                channel_id,
-                platform_chat_id,
-                ResetPolicy::default().as_str(),
-                Option::<i32>::None,
-                Some(0i32),
-                &now_str,
-            ],
-        )?;
+        // Now fetch the session (guaranteed to exist after upsert)
+        let mut session = self.get_chat_session_by_key(&session_key)?
+            .expect("Session must exist after upsert");
 
-        let id = conn.last_insert_rowid();
-        drop(conn);
+        // Check if session needs reset based on policy
+        let should_reset = match session.reset_policy {
+            ResetPolicy::Daily => {
+                let reset_hour = session.daily_reset_hour.unwrap_or(0);
+                let last_activity = session.last_activity_at;
+                let last_day = last_activity.date_naive();
+                let today = now.date_naive();
 
-        self.get_chat_session(id).map(|opt| opt.unwrap())
+                if today > last_day {
+                    // Check if we've passed the reset hour today
+                    now.hour() >= reset_hour as u32
+                } else {
+                    false
+                }
+            }
+            ResetPolicy::Idle => {
+                if let Some(timeout) = session.idle_timeout_minutes {
+                    let idle_duration = now.signed_duration_since(session.last_activity_at);
+                    idle_duration.num_minutes() > timeout as i64
+                } else {
+                    false
+                }
+            }
+            ResetPolicy::Manual | ResetPolicy::Never => false,
+        };
+
+        if should_reset {
+            // Reset the session (clear messages, update timestamps)
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "DELETE FROM session_messages WHERE session_id = ?1",
+                [session.id],
+            )?;
+            conn.execute(
+                "UPDATE chat_sessions SET last_activity_at = ?1, updated_at = ?1, compaction_id = NULL, context_tokens = 0 WHERE id = ?2",
+                rusqlite::params![&now_str, session.id],
+            )?;
+            drop(conn);
+            session.last_activity_at = now;
+            session.updated_at = now;
+            session.compaction_id = None;
+            session.context_tokens = 0;
+        }
+
+        Ok(session)
     }
 
     /// Get a chat session by ID

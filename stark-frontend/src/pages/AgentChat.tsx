@@ -6,11 +6,13 @@ import TypingIndicator from '@/components/chat/TypingIndicator';
 import ExecutionProgress from '@/components/chat/ExecutionProgress';
 import DebugPanel from '@/components/chat/DebugPanel';
 import CommandAutocomplete from '@/components/chat/CommandAutocomplete';
+import CommandMenu from '@/components/chat/CommandMenu';
 import TransactionTracker from '@/components/chat/TransactionTracker';
 import { ConfirmationPrompt } from '@/components/chat/ConfirmationPrompt';
 import { useGateway } from '@/hooks/useGateway';
 import { useWallet } from '@/hooks/useWallet';
 import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction } from '@/lib/api';
+import { Command, COMMAND_DEFINITIONS, getAllCommands } from '@/lib/commands';
 import type { ChatMessage as ChatMessageType, MessageRole, SlashCommand, TrackedTransaction, TxPendingEvent, TxConfirmedEvent, PendingConfirmation, ConfirmationRequiredEvent } from '@/types';
 
 interface ConversationMessage {
@@ -58,181 +60,6 @@ export default function AgentChat() {
 
   // Conversation history for API
   const conversationHistory = useRef<ConversationMessage[]>([]);
-
-  // Define slash commands
-  const slashCommands: SlashCommand[] = [
-    {
-      name: 'help',
-      description: 'List all available commands',
-      handler: () => {
-        const helpText = slashCommands
-          .map((cmd) => `• **/${cmd.name}** - ${cmd.description}`)
-          .join('\n');
-        addMessage('system', `**Available Commands:**\n\n${helpText}`);
-      },
-    },
-    {
-      name: 'status',
-      description: 'Show session statistics',
-      handler: async () => {
-        const settings = await getAgentSettings();
-        const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
-        const mins = Math.floor(duration / 60);
-        const secs = duration % 60;
-        const messageCount = conversationHistory.current.length;
-        const tokenEstimate = conversationHistory.current
-          .reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
-
-        addMessage('system', `**Session Status:**\n\n• Messages: ${messageCount}\n• Duration: ${mins}m ${secs}s\n• Provider: ${(settings as Record<string, unknown>).provider || 'anthropic'}\n• Est. tokens: ~${tokenEstimate}`);
-      },
-    },
-    {
-      name: 'new',
-      description: 'Start a new conversation',
-      handler: () => {
-        setMessages([]);
-        conversationHistory.current = [];
-        addMessage('system', 'Conversation cleared. Starting fresh.');
-      },
-    },
-    {
-      name: 'reset',
-      description: 'Reset conversation history',
-      handler: () => {
-        setMessages([]);
-        conversationHistory.current = [];
-        addMessage('system', 'Conversation reset.');
-      },
-    },
-    {
-      name: 'clear',
-      description: 'Clear the chat display',
-      handler: () => {
-        setMessages([]);
-        conversationHistory.current = [];
-      },
-    },
-    {
-      name: 'skills',
-      description: 'List available skills',
-      handler: async () => {
-        try {
-          const skills = await getSkills();
-          if (skills.length === 0) {
-            addMessage('system', 'No skills installed.');
-            return;
-          }
-          const skillList = skills
-            .map((s) => `• **${s.name}** - ${s.description || 'No description'}`)
-            .join('\n');
-          addMessage('system', `**Available Skills:**\n\n${skillList}`);
-        } catch {
-          addMessage('error', 'Failed to load skills');
-        }
-      },
-    },
-    {
-      name: 'tools',
-      description: 'List available tools',
-      handler: async () => {
-        try {
-          const tools = await getTools();
-          if (tools.length === 0) {
-            addMessage('system', 'No tools available.');
-            return;
-          }
-          const toolList = tools
-            .map((t) => `• **${t.name}** ${t.enabled ? '✓' : '✗'} - ${t.description || 'No description'}`)
-            .join('\n');
-          addMessage('system', `**Available Tools:**\n\n${toolList}`);
-        } catch {
-          addMessage('error', 'Failed to load tools');
-        }
-      },
-    },
-    {
-      name: 'model',
-      description: 'Show model configuration',
-      handler: async () => {
-        try {
-          const settings = await getAgentSettings() as Record<string, unknown>;
-          addMessage('system', `**Model Configuration:**\n\n• Provider: ${settings.provider || 'anthropic'}\n• Model: ${settings.model || 'claude-3-opus'}\n• Temperature: ${settings.temperature ?? 0.7}`);
-        } catch {
-          addMessage('error', 'Failed to load model configuration');
-        }
-      },
-    },
-    {
-      name: 'export',
-      description: 'Download conversation as JSON',
-      handler: () => {
-        const data = {
-          messages: conversationHistory.current,
-          exportedAt: new Date().toISOString(),
-          sessionStart: sessionStartTime.toISOString(),
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `chat-export-${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        addMessage('system', 'Conversation exported.');
-      },
-    },
-    {
-      name: 'debug',
-      description: 'Toggle debug mode',
-      handler: () => {
-        setDebugMode((prev) => !prev);
-        addMessage('system', `Debug mode ${!debugMode ? 'enabled' : 'disabled'}.`);
-      },
-    },
-    {
-      name: 'confirm',
-      description: 'Confirm pending transaction',
-      handler: async () => {
-        if (!pendingConfirmation) {
-          addMessage('system', 'No pending transaction to confirm.');
-          return;
-        }
-        try {
-          addMessage('system', 'Confirming transaction...');
-          const result = await confirmTransaction(pendingConfirmation.channel_id);
-          if (result.success) {
-            addMessage('system', result.message || 'Transaction confirmed and executing.');
-            setPendingConfirmation(null);
-          } else {
-            addMessage('error', result.error || 'Failed to confirm transaction.');
-          }
-        } catch (error) {
-          addMessage('error', error instanceof Error ? error.message : 'Failed to confirm transaction');
-        }
-      },
-    },
-    {
-      name: 'cancel',
-      description: 'Cancel pending transaction',
-      handler: async () => {
-        if (!pendingConfirmation) {
-          addMessage('system', 'No pending transaction to cancel.');
-          return;
-        }
-        try {
-          const result = await cancelTransaction(pendingConfirmation.channel_id);
-          if (result.success) {
-            addMessage('system', result.message || 'Transaction cancelled.');
-            setPendingConfirmation(null);
-          } else {
-            addMessage('error', result.error || 'Failed to cancel transaction.');
-          }
-        } catch (error) {
-          addMessage('error', error instanceof Error ? error.message : 'Failed to cancel transaction');
-        }
-      },
-    },
-  ];
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -399,6 +226,140 @@ export default function AgentChat() {
     }
   }, []);
 
+  // Command handlers map - uses Command enum for type safety
+  const commandHandlers: Record<Command, () => void | Promise<void>> = {
+    [Command.Help]: () => {
+      const helpText = getAllCommands()
+        .map((cmd) => `• **/${cmd.name}** - ${cmd.description}`)
+        .join('\n');
+      addMessage('system', `**Available Commands:**\n\n${helpText}`);
+    },
+    [Command.Status]: async () => {
+      const settings = await getAgentSettings();
+      const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
+      const mins = Math.floor(duration / 60);
+      const secs = duration % 60;
+      const messageCount = conversationHistory.current.length;
+      const tokenEstimate = conversationHistory.current
+        .reduce((acc, m) => acc + Math.ceil(m.content.length / 4), 0);
+
+      addMessage('system', `**Session Status:**\n\n• Messages: ${messageCount}\n• Duration: ${mins}m ${secs}s\n• Provider: ${(settings as Record<string, unknown>).provider || 'anthropic'}\n• Est. tokens: ~${tokenEstimate}`);
+    },
+    [Command.New]: () => {
+      setMessages([]);
+      conversationHistory.current = [];
+      addMessage('system', 'Conversation cleared. Starting fresh.');
+    },
+    [Command.Reset]: () => {
+      setMessages([]);
+      conversationHistory.current = [];
+      addMessage('system', 'Conversation reset.');
+    },
+    [Command.Clear]: () => {
+      setMessages([]);
+      conversationHistory.current = [];
+    },
+    [Command.Skills]: async () => {
+      try {
+        const skills = await getSkills();
+        if (skills.length === 0) {
+          addMessage('system', 'No skills installed.');
+          return;
+        }
+        const skillList = skills
+          .map((s) => `• **${s.name}** - ${s.description || 'No description'}`)
+          .join('\n');
+        addMessage('system', `**Available Skills:**\n\n${skillList}`);
+      } catch {
+        addMessage('error', 'Failed to load skills');
+      }
+    },
+    [Command.Tools]: async () => {
+      try {
+        const tools = await getTools();
+        if (tools.length === 0) {
+          addMessage('system', 'No tools available.');
+          return;
+        }
+        const toolList = tools
+          .map((t) => `• **${t.name}** ${t.enabled ? '✓' : '✗'} - ${t.description || 'No description'}`)
+          .join('\n');
+        addMessage('system', `**Available Tools:**\n\n${toolList}`);
+      } catch {
+        addMessage('error', 'Failed to load tools');
+      }
+    },
+    [Command.Model]: async () => {
+      try {
+        const settings = await getAgentSettings() as Record<string, unknown>;
+        addMessage('system', `**Model Configuration:**\n\n• Provider: ${settings.provider || 'anthropic'}\n• Model: ${settings.model || 'claude-3-opus'}\n• Temperature: ${settings.temperature ?? 0.7}`);
+      } catch {
+        addMessage('error', 'Failed to load model configuration');
+      }
+    },
+    [Command.Export]: () => {
+      const data = {
+        messages: conversationHistory.current,
+        exportedAt: new Date().toISOString(),
+        sessionStart: sessionStartTime.toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `chat-export-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      addMessage('system', 'Conversation exported.');
+    },
+    [Command.Debug]: () => {
+      setDebugMode((prev) => !prev);
+      addMessage('system', `Debug mode ${!debugMode ? 'enabled' : 'disabled'}.`);
+    },
+    [Command.Confirm]: async () => {
+      if (!pendingConfirmation) {
+        addMessage('system', 'No pending transaction to confirm.');
+        return;
+      }
+      try {
+        addMessage('system', 'Confirming transaction...');
+        const result = await confirmTransaction(pendingConfirmation.channel_id);
+        if (result.success) {
+          addMessage('system', result.message || 'Transaction confirmed and executing.');
+          setPendingConfirmation(null);
+        } else {
+          addMessage('error', result.error || 'Failed to confirm transaction.');
+        }
+      } catch (error) {
+        addMessage('error', error instanceof Error ? error.message : 'Failed to confirm transaction');
+      }
+    },
+    [Command.Cancel]: async () => {
+      if (!pendingConfirmation) {
+        addMessage('system', 'No pending transaction to cancel.');
+        return;
+      }
+      try {
+        const result = await cancelTransaction(pendingConfirmation.channel_id);
+        if (result.success) {
+          addMessage('system', result.message || 'Transaction cancelled.');
+          setPendingConfirmation(null);
+        } else {
+          addMessage('error', result.error || 'Failed to cancel transaction.');
+        }
+      } catch (error) {
+        addMessage('error', error instanceof Error ? error.message : 'Failed to cancel transaction');
+      }
+    },
+  };
+
+  // Build slashCommands array from enum definitions (for autocomplete compatibility)
+  const slashCommands: SlashCommand[] = getAllCommands().map((def) => ({
+    name: def.name,
+    description: def.description,
+    handler: commandHandlers[def.command],
+  }));
+
   const handleCommand = useCallback(async (commandName: string) => {
     const command = slashCommands.find((c) => c.name === commandName);
     if (command) {
@@ -408,6 +369,13 @@ export default function AgentChat() {
       addMessage('error', `Unknown command: /${commandName}`);
     }
   }, [addMessage, slashCommands]);
+
+  // Handler for CommandMenu selections
+  const handleMenuCommand = useCallback((command: Command) => {
+    const def = COMMAND_DEFINITIONS[command];
+    addMessage('command', `/${def.name}`);
+    commandHandlers[command]();
+  }, [addMessage, commandHandlers]);
 
   const handleSend = useCallback(async () => {
     const trimmedInput = input.trim();
@@ -691,6 +659,7 @@ export default function AgentChat() {
                 style={{ minHeight: '48px', maxHeight: '200px' }}
               />
             </div>
+            <CommandMenu onCommandSelect={handleMenuCommand} />
             <Button
               onClick={handleSend}
               disabled={!input.trim() || isLoading}

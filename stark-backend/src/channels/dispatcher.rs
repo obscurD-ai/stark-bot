@@ -429,6 +429,8 @@ impl MessageDispatcher {
                             &payment_info.amount_formatted,
                             &payment_info.asset,
                             &payment_info.pay_to,
+                            payment_info.tx_hash.as_deref(),
+                            &payment_info.status.to_string(),
                         ) {
                             log::error!("[DISPATCH] Failed to record x402 payment: {}", e);
                         }
@@ -554,6 +556,8 @@ impl MessageDispatcher {
                     &payment_info.amount_formatted,
                     &payment_info.asset,
                     &payment_info.pay_to,
+                    payment_info.tx_hash.as_deref(),
+                    &payment_info.status.to_string(),
                 ) {
                     log::error!("[TOOL_LOOP] Failed to record x402 payment: {}", e);
                 }
@@ -703,6 +707,8 @@ impl MessageDispatcher {
                     &payment_info.amount_formatted,
                     &payment_info.asset,
                     &payment_info.pay_to,
+                    payment_info.tx_hash.as_deref(),
+                    &payment_info.status.to_string(),
                 ) {
                     log::error!("[NATIVE_TOOL_LOOP] Failed to record x402 payment: {}", e);
                 }
@@ -723,6 +729,14 @@ impl MessageDispatcher {
             for call in &ai_response.tool_calls {
                 let args_pretty = serde_json::to_string_pretty(&call.arguments)
                     .unwrap_or_else(|_| call.arguments.to_string());
+
+                // Log tool call to console for debugging
+                log::info!(
+                    "[TOOL_CALL] Agent calling tool '{}' with args:\n{}",
+                    call.name,
+                    args_pretty
+                );
+
                 tool_call_log.push(format!(
                     "🔧 **Tool Call:** `{}`\n```json\n{}\n```",
                     call.name,
@@ -819,6 +833,8 @@ impl MessageDispatcher {
                     &payment_info.amount_formatted,
                     &payment_info.asset,
                     &payment_info.pay_to,
+                    payment_info.tx_hash.as_deref(),
+                    &payment_info.status.to_string(),
                 ) {
                     log::error!("[TEXT_TOOL_LOOP] Failed to record x402 payment: {}", e);
                 }
@@ -848,6 +864,14 @@ impl MessageDispatcher {
                         // Log and broadcast tool call for real-time display in chat
                         let args_pretty = serde_json::to_string_pretty(&tool_call.tool_params)
                             .unwrap_or_else(|_| tool_call.tool_params.to_string());
+
+                        // Log tool call to console for debugging
+                        log::info!(
+                            "[TOOL_CALL] Agent calling tool '{}' with args:\n{}",
+                            tool_call.tool_name,
+                            args_pretty
+                        );
+
                         tool_call_log.push(format!(
                             "🔧 **Tool Call:** `{}`\n```json\n{}\n```",
                             tool_call.tool_name,

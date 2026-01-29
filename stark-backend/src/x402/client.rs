@@ -154,6 +154,33 @@ impl X402Client {
 
         log::info!("[X402] Payment sent, response status: {}", paid_response.status());
 
+        // Try to extract transaction hash from response headers
+        // x402 servers may return it in various headers
+        let tx_hash = paid_response
+            .headers()
+            .get("x-payment-transaction")
+            .or_else(|| paid_response.headers().get("X-Payment-Transaction"))
+            .or_else(|| paid_response.headers().get("x-transaction-hash"))
+            .or_else(|| paid_response.headers().get("X-Transaction-Hash"))
+            .or_else(|| paid_response.headers().get("x-payment-tx"))
+            .or_else(|| paid_response.headers().get("X-Payment-Tx"))
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        // Update payment info with tx_hash if available
+        let payment_info = if let Some(hash) = tx_hash {
+            log::info!("[X402] Received transaction hash: {}", hash);
+            payment_info.with_tx_hash(hash)
+        } else if paid_response.status().is_success() {
+            // Payment succeeded but no tx_hash in headers - mark as confirmed anyway
+            log::info!("[X402] Payment confirmed (no tx_hash in response headers)");
+            payment_info.mark_confirmed()
+        } else {
+            // Payment may have failed
+            log::warn!("[X402] Payment response status: {}, keeping as pending", paid_response.status());
+            payment_info
+        };
+
         Ok(X402Response {
             response: paid_response,
             payment: Some(payment_info),

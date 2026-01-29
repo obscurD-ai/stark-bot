@@ -97,6 +97,25 @@ impl PaymentRequired {
     }
 }
 
+/// Payment status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PaymentStatus {
+    Pending,
+    Confirmed,
+    Failed,
+}
+
+impl std::fmt::Display for PaymentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PaymentStatus::Pending => write!(f, "pending"),
+            PaymentStatus::Confirmed => write!(f, "confirmed"),
+            PaymentStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
 /// Information about a completed x402 payment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct X402PaymentInfo {
@@ -110,12 +129,16 @@ pub struct X402PaymentInfo {
     pub pay_to: String,
     /// Optional resource identifier
     pub resource: Option<String>,
+    /// Transaction hash if available
+    pub tx_hash: Option<String>,
+    /// Payment status
+    pub status: PaymentStatus,
     /// Timestamp of payment
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 impl X402PaymentInfo {
-    /// Create from payment requirements
+    /// Create from payment requirements (starts as pending with no tx_hash)
     pub fn from_requirements(req: &PaymentRequirements) -> Self {
         // Format amount (USDC has 6 decimals)
         let amount_formatted = format_usdc_amount(&req.max_amount_required);
@@ -126,8 +149,29 @@ impl X402PaymentInfo {
             asset: req.asset.clone(),
             pay_to: req.pay_to_address.clone(),
             resource: req.resource.clone(),
+            tx_hash: None,
+            status: PaymentStatus::Pending,
             timestamp: chrono::Utc::now(),
         }
+    }
+
+    /// Set transaction hash and mark as confirmed
+    pub fn with_tx_hash(mut self, tx_hash: String) -> Self {
+        self.tx_hash = Some(tx_hash);
+        self.status = PaymentStatus::Confirmed;
+        self
+    }
+
+    /// Mark payment as confirmed (even without tx_hash)
+    pub fn mark_confirmed(mut self) -> Self {
+        self.status = PaymentStatus::Confirmed;
+        self
+    }
+
+    /// Mark payment as failed
+    pub fn mark_failed(mut self) -> Self {
+        self.status = PaymentStatus::Failed;
+        self
     }
 }
 

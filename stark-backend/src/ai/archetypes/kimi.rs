@@ -60,7 +60,13 @@ impl ModelArchetype for KimiArchetype {
 
         prompt.push_str("\n**IMPORTANT**: When a user asks for something that a tool can provide, ");
         prompt.push_str("USE the tool via the native tool_calls mechanism. ");
-        prompt.push_str("Do not output tool calls as text.\n");
+        prompt.push_str("Do not output tool calls as text.\n\n");
+
+        prompt.push_str("**CRITICAL - NEVER HALLUCINATE TOOL RESULTS**:\n");
+        prompt.push_str("- Wait for actual tool results before reporting them\n");
+        prompt.push_str("- Report EXACTLY what tools return - never invent tx hashes, addresses, or data\n");
+        prompt.push_str("- If a tool fails, quote the actual error message verbatim\n");
+        prompt.push_str("- Never guess or assume what a tool will return\n");
 
         prompt
     }

@@ -5,6 +5,7 @@
 
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
+use crate::tools::builtin::web3_tx::parse_u256;
 use crate::tools::registry::Tool;
 use crate::tools::types::{
     PropertySchema, ToolContext, ToolDefinition, ToolGroup, ToolInputSchema, ToolResult,
@@ -179,7 +180,8 @@ impl Web3FunctionCallTool {
                     Value::Number(n) => n.to_string(),
                     _ => return Err(format!("Expected string or number for uint{}, got {:?}", bits, value)),
                 };
-                let n: U256 = s.parse()
+                // Use parse_u256 to handle both decimal and hex strings correctly
+                let n: U256 = parse_u256(&s)
                     .map_err(|_| format!("Invalid uint{}: {}", bits, s))?;
                 Ok(Token::Uint(n))
             }
@@ -554,10 +556,10 @@ impl Tool for Web3FunctionCallTool {
                 Err(e) => ToolResult::error(e),
             }
         } else {
-            // Transaction
-            let value: U256 = match params.value.parse() {
+            // Transaction - use parse_u256 for correct decimal/hex handling
+            let value: U256 = match parse_u256(&params.value) {
                 Ok(v) => v,
-                Err(_) => return ToolResult::error(format!("Invalid value: {}", params.value)),
+                Err(e) => return ToolResult::error(format!("Invalid value: {} - {}", params.value, e)),
             };
 
             match Self::send_transaction(

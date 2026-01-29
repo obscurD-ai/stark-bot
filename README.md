@@ -86,6 +86,14 @@ cargo run -p stark-backend
 
 The server starts at `http://localhost:8080`
 
+
+```
+                                                                                                                 
+  docker compose down && docker compose build --no-cache && docker compose up                                                                                                                
+                                                                                
+```
+
+
 ### Test Endpoints
 
 ```bash

@@ -581,6 +581,7 @@ impl Database {
                 pay_to TEXT NOT NULL,
                 from_address TEXT,
                 tx_hash TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
                 block_number INTEGER,
                 feedback_submitted INTEGER NOT NULL DEFAULT 0,
                 feedback_id INTEGER,
@@ -597,6 +598,17 @@ impl Database {
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_x402_payments_tx_hash ON x402_payments(tx_hash)",
+            [],
+        )?;
+
+        // Migration: Add status column to x402_payments if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE x402_payments ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'",
+            [],
+        );
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_x402_payments_status ON x402_payments(status)",
             [],
         )?;
 
@@ -730,13 +742,30 @@ impl Database {
         amount_formatted: &str,
         asset: &str,
         pay_to: &str,
+        tx_hash: Option<&str>,
+        status: &str,
     ) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO x402_payments (channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to],
+            "INSERT INTO x402_payments (channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            rusqlite::params![channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, status],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// Update payment status and tx_hash
+    pub fn update_x402_payment_status(
+        &self,
+        payment_id: i64,
+        status: &str,
+        tx_hash: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE x402_payments SET status = ?1, tx_hash = COALESCE(?2, tx_hash) WHERE id = ?3",
+            rusqlite::params![status, tx_hash, payment_id],
+        )?;
+        Ok(())
     }
 }

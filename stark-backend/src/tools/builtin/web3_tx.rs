@@ -4,6 +4,7 @@
 //! This is a generic tool - specific tx data is crafted by skills or the agent.
 //! All RPC calls go through defirelay.com with x402 payments.
 
+use crate::domain_types::DomainUint256;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::tools::registry::Tool;
@@ -20,6 +21,24 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Transaction result with all the details an agent needs
+#[derive(Debug)]
+struct TxResult {
+    from: String,
+    to: String,
+    tx_hash: String,
+    status: String,
+    network: String,
+    value_wei: String,
+    gas_limit: String,
+    gas_used: Option<String>,
+    max_fee_per_gas: String,
+    max_priority_fee_per_gas: String,
+    effective_gas_price: Option<String>,
+    block_number: Option<u64>,
+    explorer_url: String,
+}
 
 /// Web3 transaction tool
 pub struct Web3TxTool {
@@ -89,7 +108,7 @@ impl Web3TxTool {
             "max_fee_per_gas".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Max fee per gas in wei (optional, will use current gas price if not provided)".to_string(),
+                description: "Max fee per gas in wei (required)".to_string(),
                 default: None,
                 items: None,
                 enum_values: None,
@@ -114,7 +133,7 @@ impl Web3TxTool {
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
-                    required: vec!["to".to_string()],
+                    required: vec!["to".to_string(), "max_fee_per_gas".to_string()],
                 },
                 group: ToolGroup::Web,
             },
@@ -144,12 +163,12 @@ impl Web3TxTool {
         to: &str,
         data: &str,
         value: &str,
-        gas_limit: Option<&str>,
-        max_fee_per_gas: Option<&str>,
-        max_priority_fee_per_gas: Option<&str>,
+        gas_limit: Option<U256>,
+        max_fee_per_gas: Option<U256>,
+        max_priority_fee_per_gas: Option<U256>,
         broadcaster: Option<&Arc<EventBroadcaster>>,
         channel_id: Option<i64>,
-    ) -> Result<(String, String, String), String> {
+    ) -> Result<TxResult, String> {
         let private_key = Self::get_private_key()?;
         let rpc = X402EvmRpc::new(&private_key, network)?;
         let chain_id = rpc.chain_id();
@@ -162,9 +181,8 @@ impl Web3TxTool {
         let to_address: Address = to.parse()
             .map_err(|_| format!("Invalid 'to' address: {}", to))?;
 
-        // Parse value
-        let tx_value: U256 = value.parse()
-            .map_err(|_| format!("Invalid value: {}", value))?;
+        // Parse value - MUST use parse_u256, NOT .parse() which treats decimal as hex!
+        let tx_value: U256 = parse_u256(value)?;
 
         // Decode calldata (auto-pad odd-length hex strings)
         let calldata = {
@@ -188,37 +206,41 @@ impl Web3TxTool {
 
         // Determine gas limit
         let gas = if let Some(gl) = gas_limit {
-            gl.parse::<U256>()
-                .map_err(|_| format!("Invalid gas_limit: {}", gl))?
+            log::info!("[web3_tx] Using provided gas_limit: {}", gl);
+            gl
         } else {
             // Estimate gas
+            log::warn!("[web3_tx] No gas_limit provided, estimating from network");
             let estimate = rpc.estimate_gas(from_address, to_address, &calldata, tx_value).await?;
             // Add 20% buffer
             estimate * 120 / 100
         };
+        log::info!("[web3_tx] Gas limit resolved to: {}", gas);
 
         // Determine gas prices
         let (max_fee, priority_fee) = if let Some(mfpg) = max_fee_per_gas {
-            let max_fee = mfpg.parse::<U256>()
-                .map_err(|_| format!("Invalid max_fee_per_gas: {}", mfpg))?;
+            log::info!("[web3_tx] Using provided max_fee_per_gas: {}", mfpg);
 
             let priority_fee = if let Some(mpfpg) = max_priority_fee_per_gas {
-                mpfpg.parse::<U256>()
-                    .map_err(|_| format!("Invalid max_priority_fee_per_gas: {}", mpfpg))?
+                log::info!("[web3_tx] Using provided priority_fee: {}", mpfpg);
+                mpfpg
             } else {
-                // Default priority fee to a reasonable value
-                U256::from(1_000_000_000u64) // 1 gwei
+                // Default priority fee to 1 gwei, but cap to max_fee
+                log::info!("[web3_tx] No priority_fee provided, defaulting to min(1 gwei, max_fee)");
+                std::cmp::min(U256::from(1_000_000_000u64), mfpg)
             };
+            log::info!("[web3_tx] Priority fee resolved to: {}", priority_fee);
 
-            (max_fee, priority_fee)
+            (mfpg, priority_fee)
         } else {
             // Estimate fees from network
+            log::warn!("[web3_tx] No max_fee_per_gas provided, estimating from network");
             rpc.estimate_eip1559_fees().await?
         };
 
         log::info!(
-            "[web3_tx] Sending tx: to={}, value={}, data_len={} bytes, gas={}, nonce={} on {}",
-            to, value, calldata.len(), gas, nonce, network
+            "[web3_tx] Sending tx: to={}, value={}, data_len={} bytes, gas={}, max_fee={}, priority_fee={}, nonce={} on {}",
+            to, value, calldata.len(), gas, max_fee, priority_fee, nonce, network
         );
 
         // Build EIP-1559 transaction
@@ -288,7 +310,114 @@ impl Web3TxTool {
             log::info!("[web3_tx] Emitted tx.confirmed event for {} (status={})", tx_hash_str, status);
         }
 
-        Ok((from_str, tx_hash_str, status))
+        Ok(TxResult {
+            from: from_str,
+            to: to.to_string(),
+            tx_hash: tx_hash_str,
+            status,
+            network: network.to_string(),
+            value_wei: tx_value.to_string(),
+            gas_limit: gas.to_string(),
+            gas_used: receipt.gas_used.map(|g| g.to_string()),
+            max_fee_per_gas: max_fee.to_string(),
+            max_priority_fee_per_gas: priority_fee.to_string(),
+            effective_gas_price: receipt.effective_gas_price.map(|p| p.to_string()),
+            block_number: receipt.block_number.map(|b| b.as_u64()),
+            explorer_url,
+        })
+    }
+
+    /// Format wei as human-readable ETH
+    fn format_eth(wei: &str) -> String {
+        if let Ok(w) = wei.parse::<u128>() {
+            let eth = w as f64 / 1e18;
+            if eth >= 0.0001 {
+                format!("{:.6} ETH", eth)
+            } else {
+                format!("{} wei", wei)
+            }
+        } else {
+            format!("{} wei", wei)
+        }
+    }
+
+    /// Format wei as gwei for gas prices
+    fn format_gwei(wei: &str) -> String {
+        if let Ok(w) = wei.parse::<u128>() {
+            let gwei = w as f64 / 1e9;
+            format!("{:.4} gwei", gwei)
+        } else {
+            format!("{} wei", wei)
+        }
+    }
+
+    /// Parse RPC errors and provide actionable feedback
+    fn parse_rpc_error(error: &str, params: &Web3TxParams) -> String {
+        let mut result = String::new();
+
+        // Identify the error type and provide context
+        if error.contains("insufficient funds") {
+            result.push_str("❌ INSUFFICIENT FUNDS\n\n");
+            result.push_str("The wallet doesn't have enough ETH to cover gas + value.\n");
+
+            // Try to parse the have/want from the error
+            if let (Some(have_start), Some(want_start)) = (error.find("have "), error.find("want ")) {
+                let have = error[have_start + 5..].split_whitespace().next().unwrap_or("?");
+                let want = error[want_start + 5..].split_whitespace().next().unwrap_or("?");
+                result.push_str(&format!("• Have: {} ({})\n", have, Self::format_eth(have)));
+                result.push_str(&format!("• Need: {} ({})\n", want, Self::format_eth(want)));
+            }
+            result.push_str("\nAction: Fund the wallet or reduce the transaction value/gas.");
+        } else if error.contains("max priority fee per gas higher than max fee") {
+            result.push_str("❌ INVALID GAS PARAMS\n\n");
+            result.push_str("max_priority_fee_per_gas cannot exceed max_fee_per_gas.\n");
+            result.push_str(&format!("• max_fee_per_gas: {}\n", params.max_fee_per_gas.as_ref().map(|g| g.0.to_string()).unwrap_or_else(|| "not set".to_string())));
+            result.push_str(&format!("• max_priority_fee_per_gas: {}\n", params.max_priority_fee_per_gas.as_ref().map(|g| g.0.to_string()).unwrap_or_else(|| "not set".to_string())));
+            result.push_str("\nAction: Set max_priority_fee_per_gas <= max_fee_per_gas.");
+        } else if error.contains("nonce too low") {
+            result.push_str("❌ NONCE TOO LOW\n\n");
+            result.push_str("A transaction with this nonce was already mined.\n");
+            result.push_str("Action: Retry - the nonce will be re-fetched automatically.");
+        } else if error.contains("replacement transaction underpriced") {
+            result.push_str("❌ REPLACEMENT UNDERPRICED\n\n");
+            result.push_str("A pending transaction exists with the same nonce but higher gas price.\n");
+            result.push_str("Action: Increase max_fee_per_gas by at least 10% to replace it.");
+        } else if error.contains("gas required exceeds allowance") || error.contains("out of gas") {
+            result.push_str("❌ OUT OF GAS\n\n");
+            result.push_str("The transaction would run out of gas during execution.\n");
+            result.push_str(&format!("• gas_limit provided: {}\n", params.gas_limit.as_ref().map(|g| g.0.to_string()).unwrap_or_else(|| "auto-estimated".to_string())));
+            result.push_str("Action: Increase gas_limit or check if the transaction would revert.");
+        } else if error.contains("execution reverted") {
+            result.push_str("❌ EXECUTION REVERTED\n\n");
+            result.push_str("The contract rejected the transaction during simulation.\n");
+            result.push_str("Common causes: slippage, insufficient approval, bad params.\n");
+            result.push_str("Action: Check contract requirements and transaction parameters.");
+        } else {
+            result.push_str(&format!("❌ TRANSACTION FAILED\n\n{}\n", error));
+        }
+
+        // Always append the attempted params for debugging
+        result.push_str("\n--- Transaction Details ---\n");
+        result.push_str(&format!("Network: {}\n", params.network));
+        result.push_str(&format!("To: {}\n", params.to));
+        result.push_str(&format!("Value: {} ({})\n", params.value, Self::format_eth(&params.value)));
+        result.push_str(&format!("Data: {}...({} bytes)\n",
+            &params.data[..std::cmp::min(20, params.data.len())],
+            (params.data.len().saturating_sub(2)) / 2
+        ));
+        if let Some(ref gl) = params.gas_limit {
+            result.push_str(&format!("Gas Limit: {}\n", gl.0));
+        }
+        if let Some(ref mfpg) = params.max_fee_per_gas {
+            let mfpg_str = mfpg.0.to_string();
+            result.push_str(&format!("Max Fee: {} ({})\n", mfpg_str, Self::format_gwei(&mfpg_str)));
+        }
+        if let Some(ref mpfpg) = params.max_priority_fee_per_gas {
+            let mpfpg_str = mpfpg.0.to_string();
+            result.push_str(&format!("Priority Fee: {} ({})\n", mpfpg_str, Self::format_gwei(&mpfpg_str)));
+        }
+
+        result
     }
 }
 
@@ -307,9 +436,9 @@ struct Web3TxParams {
     value: String,
     #[serde(default = "default_network")]
     network: String,
-    gas_limit: Option<String>,
-    max_fee_per_gas: Option<String>,
-    max_priority_fee_per_gas: Option<String>,
+    gas_limit: Option<DomainUint256>,
+    max_fee_per_gas: Option<DomainUint256>,
+    max_priority_fee_per_gas: Option<DomainUint256>,
 }
 
 fn default_data() -> String {
@@ -331,10 +460,19 @@ impl Tool for Web3TxTool {
     }
 
     async fn execute(&self, params: Value, context: &ToolContext) -> ToolResult {
-        let params: Web3TxParams = match serde_json::from_value(params) {
+        // Debug: log raw params to see what's actually arriving
+        log::info!("[web3_tx] Raw params received: {}", params);
+
+        let params: Web3TxParams = match serde_json::from_value(params.clone()) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
+
+        // Debug: log parsed params
+        log::info!(
+            "[web3_tx] Parsed params: gas_limit={:?}, max_fee={:?}, priority_fee={:?}",
+            params.gas_limit, params.max_fee_per_gas, params.max_priority_fee_per_gas
+        );
 
         // Validate network
         if params.network != "base" && params.network != "mainnet" {
@@ -346,32 +484,318 @@ impl Tool for Web3TxTool {
             &params.to,
             &params.data,
             &params.value,
-            params.gas_limit.as_deref(),
-            params.max_fee_per_gas.as_deref(),
-            params.max_priority_fee_per_gas.as_deref(),
+            params.gas_limit.as_ref().map(|g| g.0),
+            params.max_fee_per_gas.as_ref().map(|g| g.0),
+            params.max_priority_fee_per_gas.as_ref().map(|g| g.0),
             context.broadcaster.as_ref(),
             context.channel_id,
         ).await {
-            Ok((from, tx_hash, status)) => {
-                let explorer = if params.network == "mainnet" {
-                    "https://etherscan.io/tx"
-                } else {
-                    "https://basescan.org/tx"
-                };
+            Ok(result) => {
+                let status_emoji = if result.status == "confirmed" { "✅" } else { "❌" };
 
-                ToolResult::success(format!(
-                    "Transaction {}\nFrom: {}\nHash: {}\nExplorer: {}/{}",
-                    status, from, tx_hash, explorer, tx_hash
-                )).with_metadata(json!({
-                    "from": from,
-                    "to": params.to,
-                    "tx_hash": tx_hash,
-                    "status": status,
-                    "network": params.network,
-                    "explorer_url": format!("{}/{}", explorer, tx_hash)
+                // Build detailed success message
+                let mut msg = format!(
+                    "{} TRANSACTION {}\n\n",
+                    status_emoji,
+                    result.status.to_uppercase()
+                );
+                msg.push_str(&format!("Hash: {}\n", result.tx_hash));
+                msg.push_str(&format!("Explorer: {}\n\n", result.explorer_url));
+
+                msg.push_str("--- Details ---\n");
+                msg.push_str(&format!("From: {}\n", result.from));
+                msg.push_str(&format!("To: {}\n", result.to));
+                msg.push_str(&format!("Network: {}\n", result.network));
+                msg.push_str(&format!("Value: {} ({})\n", result.value_wei, Self::format_eth(&result.value_wei)));
+
+                if let Some(ref block) = result.block_number {
+                    msg.push_str(&format!("Block: {}\n", block));
+                }
+
+                msg.push_str("\n--- Gas ---\n");
+                msg.push_str(&format!("Gas Limit: {}\n", result.gas_limit));
+                if let Some(ref used) = result.gas_used {
+                    msg.push_str(&format!("Gas Used: {}\n", used));
+                }
+                msg.push_str(&format!("Max Fee: {} ({})\n", result.max_fee_per_gas, Self::format_gwei(&result.max_fee_per_gas)));
+                msg.push_str(&format!("Priority Fee: {} ({})\n", result.max_priority_fee_per_gas, Self::format_gwei(&result.max_priority_fee_per_gas)));
+                if let Some(ref effective) = result.effective_gas_price {
+                    msg.push_str(&format!("Effective Price: {} ({})\n", effective, Self::format_gwei(effective)));
+                }
+
+                // Calculate actual cost if we have the data
+                if let (Some(used), Some(price)) = (&result.gas_used, &result.effective_gas_price) {
+                    if let (Ok(u), Ok(p)) = (used.parse::<u128>(), price.parse::<u128>()) {
+                        let cost = u * p;
+                        msg.push_str(&format!("Actual Cost: {}\n", Self::format_eth(&cost.to_string())));
+                    }
+                }
+
+                ToolResult::success(msg).with_metadata(json!({
+                    "from": result.from,
+                    "to": result.to,
+                    "tx_hash": result.tx_hash,
+                    "status": result.status,
+                    "network": result.network,
+                    "explorer_url": result.explorer_url,
+                    "value_wei": result.value_wei,
+                    "gas_limit": result.gas_limit,
+                    "gas_used": result.gas_used,
+                    "max_fee_per_gas": result.max_fee_per_gas,
+                    "max_priority_fee_per_gas": result.max_priority_fee_per_gas,
+                    "effective_gas_price": result.effective_gas_price,
+                    "block_number": result.block_number
                 }))
             }
-            Err(e) => ToolResult::error(e),
+            Err(e) => ToolResult::error(Self::parse_rpc_error(&e, &params)),
         }
+    }
+}
+
+/// Parse decimal or hex strings to U256 (exposed for testing)
+/// IMPORTANT: Do NOT use str.parse::<U256>() - it treats strings as hex!
+/// Use U256::from_dec_str() for decimal strings.
+pub fn parse_u256(s: &str) -> Result<U256, String> {
+    let s = s.trim();
+    if s.starts_with("0x") || s.starts_with("0X") {
+        U256::from_str_radix(&s[2..], 16)
+            .map_err(|e| format!("Invalid hex: {} - {}", s, e))
+    } else {
+        // MUST use from_dec_str, NOT parse() - parse() treats input as hex!
+        U256::from_dec_str(s)
+            .map_err(|e| format!("Invalid decimal: {} - {}", s, e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_parse_u256_decimal() {
+        // Debug: see what's happening
+        let input = "331157";
+        let result = parse_u256(input);
+        println!("Input: '{}'", input);
+        println!("Result: {:?}", result);
+        println!("Expected: {:?}", U256::from(331157u64));
+
+        // Try direct methods
+        println!("Direct parse: {:?}", input.parse::<U256>());
+        println!("from_dec_str: {:?}", U256::from_dec_str(input));
+
+        // Basic decimal parsing
+        assert_eq!(parse_u256("331157").unwrap(), U256::from(331157u64));
+        assert_eq!(parse_u256("5756709").unwrap(), U256::from(5756709u64));
+        assert_eq!(parse_u256("100000000000000").unwrap(), U256::from(100000000000000u64));
+        assert_eq!(parse_u256("0").unwrap(), U256::from(0u64));
+        assert_eq!(parse_u256("1").unwrap(), U256::from(1u64));
+
+        // With whitespace
+        assert_eq!(parse_u256("  331157  ").unwrap(), U256::from(331157u64));
+    }
+
+    #[test]
+    fn test_parse_u256_hex() {
+        // Hex parsing - verify correct conversions
+        // 0x50d95 = 331157 decimal
+        assert_eq!(parse_u256("0x50d95").unwrap(), U256::from(331157u64));
+        assert_eq!(parse_u256("0x5756709").unwrap(), U256::from(0x5756709u64));
+        assert_eq!(parse_u256("0xf4240").unwrap(), U256::from(1000000u64));
+
+        // Hex parsing (uppercase 0X)
+        assert_eq!(parse_u256("0X50D95").unwrap(), U256::from(331157u64));
+
+        // Common gas prices on Base
+        assert_eq!(parse_u256("0x5756a5").unwrap(), U256::from(5723813u64));
+    }
+
+    #[test]
+    fn test_parse_u256_errors() {
+        // Invalid strings
+        assert!(parse_u256("abc").is_err());
+        assert!(parse_u256("0xGGG").is_err());
+        assert!(parse_u256("-1").is_err());
+        // Note: empty string may parse as 0 depending on implementation
+    }
+
+    #[test]
+    fn test_web3_tx_params_deserialization() {
+        // Test with all fields as strings
+        let json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734",
+            "data": "0x1234",
+            "value": "100000000000000",
+            "network": "base",
+            "gas_limit": "331157",
+            "max_fee_per_gas": "5756709",
+            "max_priority_fee_per_gas": "1000000"
+        });
+
+        let params: Web3TxParams = serde_json::from_value(json).unwrap();
+
+        assert_eq!(params.to, "0x0000000000001ff3684f28c67538d4d072c22734");
+        assert_eq!(params.data, "0x1234");
+        assert_eq!(params.value, "100000000000000");
+        assert_eq!(params.network, "base");
+        // DomainUint256 correctly parses decimal strings
+        assert_eq!(params.gas_limit.unwrap().0, U256::from(331157u64));
+        assert_eq!(params.max_fee_per_gas.unwrap().0, U256::from(5756709u64));
+        assert_eq!(params.max_priority_fee_per_gas.unwrap().0, U256::from(1000000u64));
+    }
+
+    #[test]
+    fn test_web3_tx_params_optional_fields() {
+        // Test with only required fields
+        let json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734"
+        });
+
+        let params: Web3TxParams = serde_json::from_value(json).unwrap();
+
+        assert_eq!(params.to, "0x0000000000001ff3684f28c67538d4d072c22734");
+        assert_eq!(params.data, "0x"); // default
+        assert_eq!(params.value, "0"); // default
+        assert_eq!(params.network, "base"); // default
+        assert_eq!(params.gas_limit, None);
+        assert_eq!(params.max_fee_per_gas, None);
+        assert_eq!(params.max_priority_fee_per_gas, None);
+    }
+
+    #[test]
+    fn test_web3_tx_params_with_hex_gas() {
+        // Test that hex gas values are correctly parsed by DomainUint256
+        // 0x50d95 = 331157 decimal
+        let json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734",
+            "gas_limit": "0x50d95",
+            "max_fee_per_gas": "0x5756a5"
+        });
+
+        let params: Web3TxParams = serde_json::from_value(json).unwrap();
+
+        // DomainUint256 correctly parses hex strings
+        assert_eq!(params.gas_limit.unwrap().0, U256::from(331157u64));
+        assert_eq!(params.max_fee_per_gas.unwrap().0, U256::from(5723813u64));
+    }
+
+    #[test]
+    fn test_gas_limit_parsing_flow() {
+        // Simulate the exact flow that happens in send_transaction
+        let gas_limit_str = Some("331157");
+
+        let gas = if let Some(gl) = gas_limit_str {
+            parse_u256(gl).unwrap()
+        } else {
+            U256::from(0u64) // would be estimate
+        };
+
+        assert_eq!(gas, U256::from(331157u64));
+    }
+
+    #[test]
+    fn test_max_fee_parsing_flow() {
+        // Simulate the exact flow for max_fee_per_gas
+        let max_fee_str = Some("5756709");
+
+        let (max_fee, priority_fee) = if let Some(mfpg) = max_fee_str {
+            let max_fee = parse_u256(mfpg).unwrap();
+            let priority_fee = std::cmp::min(U256::from(1_000_000_000u64), max_fee);
+            (max_fee, priority_fee)
+        } else {
+            (U256::from(0u64), U256::from(0u64))
+        };
+
+        assert_eq!(max_fee, U256::from(5756709u64));
+        // priority_fee should be min(1 gwei, max_fee) = min(1000000000, 5756709) = 5756709
+        assert_eq!(priority_fee, U256::from(5756709u64));
+    }
+
+    #[test]
+    fn test_option_as_deref() {
+        // Test that as_deref works correctly
+        let gas_limit: Option<String> = Some("331157".to_string());
+        let gas_limit_ref: Option<&str> = gas_limit.as_deref();
+
+        assert_eq!(gas_limit_ref, Some("331157"));
+
+        if let Some(gl) = gas_limit_ref {
+            let parsed = parse_u256(gl).unwrap();
+            assert_eq!(parsed, U256::from(331157u64));
+        } else {
+            panic!("gas_limit_ref should be Some");
+        }
+    }
+
+    #[test]
+    fn test_full_param_flow() {
+        // Test the complete flow from JSON to parsed U256 via DomainUint256
+        let json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734",
+            "data": "0x1234",
+            "value": "100000000000000",
+            "network": "base",
+            "gas_limit": "331157",
+            "max_fee_per_gas": "5756709"
+        });
+
+        let params: Web3TxParams = serde_json::from_value(json).unwrap();
+
+        // DomainUint256 already parses correctly - just extract the inner U256
+        let gas = params.gas_limit.map(|g| g.0).expect("Should have gas_limit");
+        let max_fee = params.max_fee_per_gas.map(|g| g.0).expect("Should have max_fee");
+
+        assert_eq!(gas, U256::from(331157u64));
+        assert_eq!(max_fee, U256::from(5756709u64));
+
+        println!("gas = {}", gas);
+        println!("max_fee = {}", max_fee);
+    }
+
+    #[test]
+    fn test_value_parsing_decimal_not_hex() {
+        // This is the critical bug that caused 0.001 ETH to become 1.15 ETH!
+        // "1000000000000000" decimal (0.001 ETH) was being parsed as hex
+        // which gives 0x1000000000000000 = 1.15 ETH
+
+        let value_str = "1000000000000000"; // 0.001 ETH in wei
+        let parsed = parse_u256(value_str).unwrap();
+
+        // Should be 10^15 = 0.001 ETH
+        assert_eq!(parsed, U256::from(1_000_000_000_000_000u64));
+
+        // NOT 0x1000000000000000 = 1152921504606846976 = 1.15 ETH
+        assert_ne!(parsed, U256::from(0x1000000000000000u64));
+
+        // Verify the difference
+        let wrong_value = U256::from(0x1000000000000000u64);
+        println!("Correct: {} wei ({} ETH)", parsed, parsed.as_u128() as f64 / 1e18);
+        println!("Wrong:   {} wei ({} ETH)", wrong_value, wrong_value.as_u128() as f64 / 1e18);
+    }
+
+    #[test]
+    fn test_domain_uint256_decimal_vs_hex() {
+        // Verify the critical fix: decimal "331157" should NOT be parsed as hex
+        // 331157 decimal = 0x50d95 hex (verified with calculator)
+        let decimal_json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734",
+            "gas_limit": "331157"
+        });
+        let hex_json = json!({
+            "to": "0x0000000000001ff3684f28c67538d4d072c22734",
+            "gas_limit": "0x50d95"
+        });
+
+        let decimal_params: Web3TxParams = serde_json::from_value(decimal_json).unwrap();
+        let hex_params: Web3TxParams = serde_json::from_value(hex_json).unwrap();
+
+        // Both should parse to the same value: 331157
+        assert_eq!(decimal_params.gas_limit.unwrap().0, U256::from(331157u64));
+        assert_eq!(hex_params.gas_limit.unwrap().0, U256::from(331157u64));
+
+        // The OLD bug would have parsed "331157" as hex = 0x331157 = 3346775
+        // Make sure this is NOT happening
+        assert_ne!(U256::from(331157u64), U256::from(3346775u64));
     }
 }

@@ -27,6 +27,7 @@ struct PaymentInfo {
     asset: String,
     pay_to: String,
     tx_hash: Option<String>,
+    status: String,
     feedback_submitted: bool,
     created_at: String,
 }
@@ -73,14 +74,14 @@ async fn list_payments(
     // Build query based on filters
     let (sql, params): (&str, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(channel_id) = query.channel_id {
         (
-            "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, feedback_submitted, created_at
+            "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, status, feedback_submitted, created_at
              FROM x402_payments WHERE channel_id = ?1
              ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
             vec![Box::new(channel_id), Box::new(limit), Box::new(offset)]
         )
     } else {
         (
-            "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, feedback_submitted, created_at
+            "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, status, feedback_submitted, created_at
              FROM x402_payments
              ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
             vec![Box::new(limit), Box::new(offset)]
@@ -112,8 +113,9 @@ async fn list_payments(
             asset: row.get(6)?,
             pay_to: row.get(7)?,
             tx_hash: row.get(8)?,
-            feedback_submitted: row.get::<_, i64>(9)? != 0,
-            created_at: row.get(10)?,
+            status: row.get::<_, String>(9).unwrap_or_else(|_| "pending".to_string()),
+            feedback_submitted: row.get::<_, i64>(10)? != 0,
+            created_at: row.get(11)?,
         })
     }) {
         Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
@@ -207,7 +209,7 @@ async fn get_payment(
     let conn = state.db.conn.lock().unwrap();
 
     let payment = conn.query_row(
-        "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, feedback_submitted, created_at
+        "SELECT id, channel_id, tool_name, resource, amount, amount_formatted, asset, pay_to, tx_hash, status, feedback_submitted, created_at
          FROM x402_payments WHERE id = ?1",
         [payment_id],
         |row| {
@@ -221,8 +223,9 @@ async fn get_payment(
                 asset: row.get(6)?,
                 pay_to: row.get(7)?,
                 tx_hash: row.get(8)?,
-                feedback_submitted: row.get::<_, i64>(9)? != 0,
-                created_at: row.get(10)?,
+                status: row.get::<_, String>(9).unwrap_or_else(|_| "pending".to_string()),
+                feedback_submitted: row.get::<_, i64>(10)? != 0,
+                created_at: row.get(11)?,
             })
         },
     );

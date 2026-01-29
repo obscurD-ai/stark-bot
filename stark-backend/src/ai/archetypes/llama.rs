@@ -200,6 +200,14 @@ impl ModelArchetype for LlamaArchetype {
             prompt.push_str("```\n{\"body\": \"Fetching...\", \"tool_call\": {\"tool_name\": \"web_fetch\", \"tool_params\": {\"url\": \"https://example.com\"}}}\n```\n\n");
 
             prompt.push_str("**IMPORTANT**: For weather, news, or live data - USE TOOLS IMMEDIATELY. Do not say you cannot access real-time data.\n\n");
+
+            prompt.push_str("## CRITICAL: NEVER HALLUCINATE TOOL RESULTS\n\n");
+            prompt.push_str("- WAIT for actual tool results before reporting them to the user\n");
+            prompt.push_str("- Report EXACTLY what tools return - never invent tx hashes, addresses, numbers, or data\n");
+            prompt.push_str("- If a tool fails, quote the actual error message verbatim\n");
+            prompt.push_str("- If a tool succeeds, report the actual output - do not embellish or guess\n");
+            prompt.push_str("- WRONG: Making up a hash like '0x7f4f...5b5b' before getting the real result\n");
+            prompt.push_str("- RIGHT: Waiting for tool result and reporting the actual hash returned\n\n");
         }
 
         prompt

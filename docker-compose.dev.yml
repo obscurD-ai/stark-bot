@@ -24,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      - RUST_LOG=debug
+      - RUST_LOG=info
       - RUST_BACKTRACE=1
       - PORT=8082
       - STARK_SKILLS_DIR=/app/skills

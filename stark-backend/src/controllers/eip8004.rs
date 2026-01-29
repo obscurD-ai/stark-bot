@@ -123,15 +123,10 @@ async fn get_config(_req: HttpRequest) -> impl Responder {
 // Identity Endpoints
 // =====================================================
 
-/// Get our agent's identity
+/// Get our agent's identity (public endpoint - no auth required)
 async fn get_our_identity(
     state: web::Data<AppState>,
-    req: HttpRequest,
 ) -> impl Responder {
-    if let Err(resp) = validate_auth(&state, &req) {
-        return resp;
-    }
-
     let conn = state.db.conn.lock().unwrap();
 
     // Check if we have a stored identity

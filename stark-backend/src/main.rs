@@ -10,6 +10,7 @@ mod config;
 mod context;
 mod controllers;
 mod db;
+mod domain_types;
 mod execution;
 mod gateway;
 mod integrations;

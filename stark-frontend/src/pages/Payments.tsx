@@ -14,6 +14,7 @@ interface PaymentInfo {
   asset: string;
   pay_to: string;
   tx_hash: string | null;
+  status: 'pending' | 'confirmed' | 'failed';
   feedback_submitted: boolean;
   created_at: string;
 }
@@ -187,6 +188,7 @@ export default function Payments() {
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">Tool</th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">Amount</th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">Recipient</th>
+                    <th className="text-left py-3 px-4 text-slate-400 font-medium">Status</th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">TX Hash</th>
                     <th className="text-left py-3 px-4 text-slate-400 font-medium">Feedback</th>
                   </tr>
@@ -214,6 +216,21 @@ export default function Payments() {
                         <span className="text-slate-300 font-mono text-sm">
                           {shortenAddress(payment.pay_to)}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {payment.status === 'confirmed' ? (
+                          <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs">
+                            Confirmed
+                          </span>
+                        ) : payment.status === 'failed' ? (
+                          <span className="px-2 py-1 bg-red-500/20 text-red-400 rounded text-xs">
+                            Failed
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-amber-500/20 text-amber-400 rounded text-xs">
+                            Pending
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {payment.tx_hash ? (

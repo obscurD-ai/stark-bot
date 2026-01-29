@@ -199,11 +199,20 @@ impl X402EvmRpc {
         let priority_fee = U256::from_str_radix(priority_hex.trim_start_matches("0x"), 16)
             .map_err(|e| format!("Failed to parse priority fee: {}", e))?;
 
-        // max_fee = gas_price + priority_fee (with some buffer)
-        // In practice, gas_price from eth_gasPrice is often the suggested maxFeePerGas
-        let max_fee = gas_price + priority_fee;
+        // For L2s (Base), eth_gasPrice is usually the appropriate maxFeePerGas.
+        // eth_maxPriorityFeePerGas can return unexpectedly high values from some RPC providers.
+        // Cap priority_fee to be at most equal to gas_price to avoid insane estimates.
+        let capped_priority_fee = std::cmp::min(priority_fee, gas_price);
 
-        Ok((max_fee, priority_fee))
+        // Add a small buffer (10%) to gas_price for max_fee
+        let max_fee = gas_price + gas_price / 10;
+
+        log::debug!(
+            "[X402EvmRpc] Gas estimate: gas_price={}, priority_fee={} (capped from {}), max_fee={}",
+            gas_price, capped_priority_fee, priority_fee, max_fee
+        );
+
+        Ok((max_fee, capped_priority_fee))
     }
 
     /// Send a raw signed transaction

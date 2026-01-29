@@ -143,7 +143,7 @@ pub async fn update_agent_settings(
         Some(p) => p,
         None => {
             return HttpResponse::BadRequest().json(serde_json::json!({
-                "error": format!("Invalid provider: {}. Must be claude, openai, openai_compatible, or llama.", request.provider)
+                "error": format!("Invalid provider: {}. Must be claude, openai, openai_compatible, llama, or kimi.", request.provider)
             }));
         }
     };

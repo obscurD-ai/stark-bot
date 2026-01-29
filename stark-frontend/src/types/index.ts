@@ -55,6 +55,17 @@ export interface ExecutionEvent {
   message?: string;
 }
 
+// x402 payment event
+export interface X402PaymentEvent {
+  channel_id: number;
+  amount: string;
+  amount_formatted: string;
+  asset: string;
+  pay_to: string;
+  resource?: string;
+  timestamp: string;
+}
+
 // API types
 export interface ApiResponse<T> {
   data?: T;

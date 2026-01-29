@@ -6,10 +6,10 @@ export function CTA() {
     <section className="py-20 px-6">
       <div className="max-w-4xl mx-auto text-center">
         <h2 className="text-3xl sm:text-4xl font-bold mb-6">
-          Ready to Get Started?
+          Ready to Build Web3-Native AI?
         </h2>
         <p className="text-slate-400 text-lg mb-8 max-w-2xl mx-auto">
-          Join the community and start building with StarkBot today. It's free, open source, and ready to use.
+          Connect your wallet, leverage x402 micropayments, and deploy your own crypto-native AI agent. Open source and permissionless.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <a

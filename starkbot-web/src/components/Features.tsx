@@ -1,10 +1,20 @@
-import { Zap, Code, Box, Lock, MessageCircle, BarChart2, AlertTriangle } from 'lucide-react'
+import { Zap, Code, Box, Lock, Wallet, CreditCard, Bot, Globe, AlertTriangle } from 'lucide-react'
 
 const features = [
   {
-    icon: Zap,
-    title: 'Lightning Fast',
-    description: 'Powered by cutting-edge AI models, StarkBot responds instantly and handles complex tasks with ease.',
+    icon: Wallet,
+    title: 'Sign In With Ethereum',
+    description: 'Wallet-based authentication using SIWE. No passwords, no emails—just connect your wallet to get started.',
+  },
+  {
+    icon: CreditCard,
+    title: 'x402 Micropayments',
+    description: 'Pay-per-use AI with the x402 protocol. Seamless crypto payments powered by DeFi Relay as the facilitator.',
+  },
+  {
+    icon: Bot,
+    title: 'x402 Agent',
+    description: 'Autonomous AI agent that can execute tasks and handle payments on your behalf using x402 protocol.',
   },
   {
     icon: Code,
@@ -12,24 +22,14 @@ const features = [
     description: "Fully open source and self-hostable. Own your data and customize to your heart's content.",
   },
   {
-    icon: Box,
-    title: 'Extensible',
-    description: 'Easy to integrate with your existing tools and workflows. Build custom plugins and automations.',
-  },
-  {
     icon: Lock,
-    title: 'Privacy First',
-    description: 'Your data stays yours. Self-host on your own infrastructure with full control over your information.',
+    title: 'Crypto-Native Privacy',
+    description: 'Your keys, your data. Self-host on your own infrastructure with wallet-based identity and full sovereignty.',
   },
   {
-    icon: MessageCircle,
-    title: 'Natural Conversations',
-    description: 'Talk naturally with StarkBot. It understands context and remembers your preferences.',
-  },
-  {
-    icon: BarChart2,
-    title: 'Analytics & Insights',
-    description: 'Track your productivity and get insights into how StarkBot is helping you work smarter.',
+    icon: Globe,
+    title: 'Web3 First',
+    description: 'Built for the decentralized web. Native blockchain integrations, on-chain identity, and permissionless access.',
   },
 ]
 
@@ -64,10 +64,10 @@ export function Features() {
         </div>
 
         <h2 className="text-3xl sm:text-4xl font-bold text-center mb-4">
-          <span className="gradient-text">Powerful Features</span>
+          <span className="gradient-text">Web3-Native Features</span>
         </h2>
         <p className="text-slate-400 text-center mb-16 max-w-2xl mx-auto">
-          Everything you need to supercharge your productivity with AI
+          Crypto-first AI infrastructure with wallet auth, micropayments, and autonomous agents
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

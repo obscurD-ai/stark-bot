@@ -1,4 +1,4 @@
-import { Github, ChevronDown, Monitor, BookOpen } from 'lucide-react'
+import { Github, ChevronDown, Monitor, BookOpen, Wallet } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export function Hero() {
@@ -25,14 +25,26 @@ export function Hero() {
 
         {/* Tagline */}
         <p className="text-stark-400 text-xl sm:text-2xl font-semibold uppercase tracking-widest mb-2">
-          The Cloud AI That Actually Gets Things Done.
+          Web3-Native AI Agent
         </p>
-       
+
+        {/* Badges */}
+        <div className="flex flex-wrap gap-3 justify-center mb-6">
+          <span className="px-3 py-1 bg-stark-500/20 border border-stark-500/50 rounded-full text-stark-400 text-sm font-medium">
+            Sign In With Ethereum
+          </span>
+          <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/50 rounded-full text-purple-400 text-sm font-medium">
+            x402 Payments
+          </span>
+          <span className="px-3 py-1 bg-green-500/20 border border-green-500/50 rounded-full text-green-400 text-sm font-medium">
+            DeFi Relay
+          </span>
+        </div>
 
         {/* Description */}
         <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed mb-12">
-          Automate your workflows, manage tasks, and boost productivity with an intelligent AI assistant.
-          Open source, self-hostable, and ready to integrate with your favorite tools.
+          A crypto-native AI assistant with wallet authentication, x402 micropayments, and autonomous agent capabilities.
+          Open source, self-hostable, and built for the decentralized web.
         </p>
 
         {/* CTA Buttons */}

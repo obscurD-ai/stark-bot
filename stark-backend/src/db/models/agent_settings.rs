@@ -12,7 +12,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, provider, endpoint, api_key, model, enabled, bot_name, bot_email, created_at, updated_at
+            "SELECT id, provider, endpoint, api_key, model, model_archetype, max_tokens, enabled, created_at, updated_at
              FROM agent_settings WHERE enabled = 1 LIMIT 1",
         )?;
 
@@ -28,7 +28,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, provider, endpoint, api_key, model, enabled, bot_name, bot_email, created_at, updated_at
+            "SELECT id, provider, endpoint, api_key, model, model_archetype, max_tokens, enabled, created_at, updated_at
              FROM agent_settings WHERE provider = ?1",
         )?;
 
@@ -44,7 +44,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, provider, endpoint, api_key, model, enabled, bot_name, bot_email, created_at, updated_at
+            "SELECT id, provider, endpoint, api_key, model, model_archetype, max_tokens, enabled, created_at, updated_at
              FROM agent_settings ORDER BY provider",
         )?;
 
@@ -63,13 +63,11 @@ impl Database {
         endpoint: &str,
         api_key: &str,
         model: &str,
-        bot_name: Option<&str>,
-        bot_email: Option<&str>,
+        model_archetype: Option<&str>,
+        max_tokens: i32,
     ) -> SqliteResult<AgentSettings> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();
-        let bot_name = bot_name.unwrap_or("StarkBot");
-        let bot_email = bot_email.unwrap_or("starkbot@users.noreply.github.com");
 
         // First, disable all existing settings
         conn.execute("UPDATE agent_settings SET enabled = 0, updated_at = ?1", [&now])?;
@@ -86,15 +84,15 @@ impl Database {
         if let Some(id) = existing {
             // Update existing
             conn.execute(
-                "UPDATE agent_settings SET endpoint = ?1, api_key = ?2, model = ?3, bot_name = ?4, bot_email = ?5, enabled = 1, updated_at = ?6 WHERE id = ?7",
-                rusqlite::params![endpoint, api_key, model, bot_name, bot_email, &now, id],
+                "UPDATE agent_settings SET endpoint = ?1, api_key = ?2, model = ?3, model_archetype = ?4, max_tokens = ?5, enabled = 1, updated_at = ?6 WHERE id = ?7",
+                rusqlite::params![endpoint, api_key, model, model_archetype, max_tokens, &now, id],
             )?;
         } else {
             // Insert new
             conn.execute(
-                "INSERT INTO agent_settings (provider, endpoint, api_key, model, bot_name, bot_email, enabled, created_at, updated_at)
+                "INSERT INTO agent_settings (provider, endpoint, api_key, model, model_archetype, max_tokens, enabled, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8)",
-                rusqlite::params![provider, endpoint, api_key, model, bot_name, bot_email, &now, &now],
+                rusqlite::params![provider, endpoint, api_key, model, model_archetype, max_tokens, &now, &now],
             )?;
         }
 
@@ -123,9 +121,11 @@ impl Database {
             endpoint: row.get(2)?,
             api_key: row.get(3)?,
             model: row.get(4)?,
-            enabled: row.get::<_, i32>(5)? != 0,
-            bot_name: row.get(6)?,
-            bot_email: row.get(7)?,
+            model_archetype: row.get(5)?,
+            max_tokens: row.get::<_, Option<i32>>(6)?.unwrap_or(40000),
+            enabled: row.get::<_, i32>(7)? != 0,
+            bot_name: "StarkBot".to_string(),
+            bot_email: "starkbot@users.noreply.github.com".to_string(),
             created_at: DateTime::parse_from_rfc3339(&created_at_str)
                 .unwrap()
                 .with_timezone(&Utc),

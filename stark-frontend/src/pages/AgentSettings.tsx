@@ -93,12 +93,14 @@ export default function AgentSettings() {
       // Use default model for known endpoints, empty for custom
       const model = endpointOption === 'custom' ? '' : (DEFAULT_MODELS[endpointOption] || '');
 
+      // Map endpoint option to provider
+      const provider = endpointOption === 'custom' ? 'openai_compatible' : endpointOption;
+
       await updateAgentSettings({
         endpoint,
         model_archetype: modelArchetype,
         max_tokens: maxTokens,
-        // Keep these for backend compatibility
-        provider: 'openai_compatible',
+        provider,
         api_key: '',
         model,
       });

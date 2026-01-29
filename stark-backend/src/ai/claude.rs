@@ -352,6 +352,7 @@ impl ClaudeClient {
             content: text_content,
             tool_calls,
             stop_reason: response_data.stop_reason,
+            x402_payment: None, // Claude doesn't use x402
         })
     }
 

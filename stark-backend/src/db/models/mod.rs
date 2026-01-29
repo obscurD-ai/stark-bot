@@ -1,20 +1,16 @@
-//! Database model modules - additional methods not in sqlite.rs
+//! Database model modules - extends Database with domain-specific methods
 //!
-//! Note: Core methods are in sqlite.rs. These modules add specialized functionality.
-//! Modules with duplicate methods have been disabled to avoid conflicts.
+//! Each module adds `impl Database` blocks with methods for a specific table group.
 
-// Disabled - all methods already in sqlite.rs:
-// mod auth_sessions;
-// mod api_keys;
-// mod channels;
-// mod agent_settings;
-// mod identities;
-// mod memories;
-// mod tool_configs;
-
-// Enabled - contain unique methods:
-mod chat_sessions;  // compaction methods
-mod skills;         // get_enabled_skill_by_name
-mod cron_jobs;      // all cron job methods
-mod heartbeat;      // heartbeat config methods
-mod gmail;          // gmail config methods
+mod auth;           // auth_sessions, auth_challenges
+mod api_keys;       // external_api_keys
+mod channels;       // external_channels
+mod agent_settings; // agent_settings
+mod chat_sessions;  // chat_sessions, session_messages (+ compaction)
+mod identities;     // identity_links
+mod memories;       // memories
+mod tool_configs;   // tool_configs, tool_executions
+mod skills;         // skills, skill_scripts
+mod cron_jobs;      // cron_jobs, cron_job_runs
+mod heartbeat;      // heartbeat_configs
+mod gmail;          // gmail_configs

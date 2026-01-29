@@ -288,6 +288,27 @@ impl GatewayEvent {
     pub fn custom(event: &str, data: Value) -> Self {
         Self::new(event, data)
     }
+
+    /// x402 payment made
+    pub fn x402_payment(
+        channel_id: i64,
+        amount: &str,
+        asset: &str,
+        pay_to: &str,
+        resource: Option<&str>,
+    ) -> Self {
+        Self::new(
+            "x402.payment",
+            serde_json::json!({
+                "channel_id": channel_id,
+                "amount": amount,
+                "asset": asset,
+                "pay_to": pay_to,
+                "resource": resource,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
 }
 
 /// Params for channel operations

@@ -96,3 +96,56 @@ impl PaymentRequired {
             .map_err(|e| format!("Failed to parse payment required: {}", e))
     }
 }
+
+/// Information about a completed x402 payment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct X402PaymentInfo {
+    /// Amount paid in smallest unit (e.g., micro-USDC for 6 decimals)
+    pub amount: String,
+    /// Human-readable amount (e.g., "0.001234")
+    pub amount_formatted: String,
+    /// Asset symbol (e.g., "USDC")
+    pub asset: String,
+    /// Address that received the payment
+    pub pay_to: String,
+    /// Optional resource identifier
+    pub resource: Option<String>,
+    /// Timestamp of payment
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+impl X402PaymentInfo {
+    /// Create from payment requirements
+    pub fn from_requirements(req: &PaymentRequirements) -> Self {
+        // Format amount (USDC has 6 decimals)
+        let amount_formatted = format_usdc_amount(&req.max_amount_required);
+
+        Self {
+            amount: req.max_amount_required.clone(),
+            amount_formatted,
+            asset: req.asset.clone(),
+            pay_to: req.pay_to_address.clone(),
+            resource: req.resource.clone(),
+            timestamp: chrono::Utc::now(),
+        }
+    }
+}
+
+/// Format USDC amount from raw value (6 decimals) to human-readable string
+fn format_usdc_amount(raw: &str) -> String {
+    // Parse as u128 to handle large values
+    if let Ok(value) = raw.parse::<u128>() {
+        // USDC has 6 decimals
+        let whole = value / 1_000_000;
+        let frac = value % 1_000_000;
+        if frac == 0 {
+            format!("{}", whole)
+        } else {
+            // Remove trailing zeros
+            let frac_str = format!("{:06}", frac).trim_end_matches('0').to_string();
+            format!("{}.{}", whole, frac_str)
+        }
+    } else {
+        raw.to_string()
+    }
+}

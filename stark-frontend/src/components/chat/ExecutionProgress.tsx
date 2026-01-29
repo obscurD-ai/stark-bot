@@ -215,43 +215,53 @@ export default function ExecutionProgress({ className }: ExecutionProgressProps)
     };
 
     const prefix = depth > 0 ? (isLast ? '└─' : '├─') : '';
+    const taskText = task.status === 'in_progress' && task.activeForm
+      ? task.activeForm
+      : task.name;
 
     return (
       <div key={task.id}>
         <div
           className={clsx(
-            'flex items-center gap-2 py-1 text-sm font-mono',
+            'py-1 text-sm font-mono',
             task.status === 'in_progress' && 'text-cyan-400'
           )}
           style={{ paddingLeft: `${depth * 16}px` }}
         >
-          <span className="text-slate-600">{prefix}</span>
-          {hasChildren && (
-            <button
-              onClick={() => toggleCollapse(task.id)}
-              className="p-0.5 hover:bg-slate-700 rounded"
-            >
-              {isCollapsed ? (
-                <ChevronRight className="w-3 h-3 text-slate-500" />
-              ) : (
-                <ChevronDown className="w-3 h-3 text-slate-500" />
-              )}
-            </button>
-          )}
-          {statusIcon[task.status]}
-          <span className={clsx(
-            task.status === 'completed' && 'text-slate-400',
-            task.status === 'error' && 'text-red-400'
-          )}>
-            {task.status === 'in_progress' && task.activeForm
-              ? task.activeForm
-              : task.name}
-          </span>
-          {task.duration && (
-            <span className="text-slate-600 text-xs">
-              {formatDuration(task.duration)}
-            </span>
-          )}
+          {/* Header row */}
+          <div className="flex items-center gap-2">
+            <span className="text-slate-600 shrink-0">{prefix}</span>
+            {hasChildren && (
+              <button
+                onClick={() => toggleCollapse(task.id)}
+                className="p-0.5 hover:bg-slate-700 rounded shrink-0"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-3 h-3 text-slate-500" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 text-slate-500" />
+                )}
+              </button>
+            )}
+            <span className="shrink-0">{statusIcon[task.status]}</span>
+            {task.duration && (
+              <span className="text-slate-600 text-xs shrink-0">
+                {formatDuration(task.duration)}
+              </span>
+            )}
+          </div>
+          {/* Full task text - NO TRUNCATION */}
+          <div
+            className={clsx(
+              'ml-6 whitespace-pre-wrap text-xs',
+              task.status === 'completed' && 'text-slate-400',
+              task.status === 'error' && 'text-red-400',
+              task.status === 'in_progress' && 'text-cyan-300'
+            )}
+            style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
+          >
+            {taskText}
+          </div>
         </div>
         {hasChildren && !isCollapsed && (
           <div>

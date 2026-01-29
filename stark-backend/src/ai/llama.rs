@@ -253,6 +253,7 @@ impl LlamaClient {
             content: response_data.message.content,
             tool_calls,
             stop_reason,
+            x402_payment: None, // Llama doesn't use x402 directly (handled by OpenAI-compatible wrapper)
         })
     }
 

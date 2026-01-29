@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::x402::X402PaymentInfo;
 
 /// Thinking level for Claude extended thinking
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -138,6 +139,9 @@ pub struct AiResponse {
     pub tool_calls: Vec<ToolCall>,
     /// The reason the AI stopped generating
     pub stop_reason: Option<String>,
+    /// x402 payment info if a payment was made for this request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x402_payment: Option<X402PaymentInfo>,
 }
 
 impl AiResponse {
@@ -146,6 +150,7 @@ impl AiResponse {
             content,
             tool_calls: vec![],
             stop_reason: Some("end_turn".to_string()),
+            x402_payment: None,
         }
     }
 
@@ -154,7 +159,14 @@ impl AiResponse {
             content,
             tool_calls,
             stop_reason: Some("tool_use".to_string()),
+            x402_payment: None,
         }
+    }
+
+    /// Add x402 payment info to the response
+    pub fn with_x402_payment(mut self, payment: Option<X402PaymentInfo>) -> Self {
+        self.x402_payment = payment;
+        self
     }
 
     /// Check if the response contains tool calls

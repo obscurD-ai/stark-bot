@@ -10,6 +10,8 @@ pub enum AiProvider {
     /// OpenAI-compatible API (DigitalOcean, Azure, local servers, etc.)
     OpenAICompatible,
     Llama,
+    /// Kimi (Moonshot AI) - OpenAI-compatible
+    Kimi,
 }
 
 impl AiProvider {
@@ -19,6 +21,7 @@ impl AiProvider {
             AiProvider::OpenAI => "openai",
             AiProvider::OpenAICompatible => "openai_compatible",
             AiProvider::Llama => "llama",
+            AiProvider::Kimi => "kimi",
         }
     }
 
@@ -28,6 +31,7 @@ impl AiProvider {
             "openai" => Some(AiProvider::OpenAI),
             "openai_compatible" | "openaicompatible" | "custom" => Some(AiProvider::OpenAICompatible),
             "llama" => Some(AiProvider::Llama),
+            "kimi" | "moonshot" => Some(AiProvider::Kimi),
             _ => None,
         }
     }
@@ -39,6 +43,7 @@ impl AiProvider {
             AiProvider::OpenAI => "https://api.openai.com/v1/chat/completions",
             AiProvider::OpenAICompatible => "https://your-endpoint.com/v1/chat/completions",
             AiProvider::Llama => "http://localhost:11434/api/chat",
+            AiProvider::Kimi => "https://kimi.defirelay.com/api/v1/chat/completions",
         }
     }
 
@@ -49,6 +54,7 @@ impl AiProvider {
             AiProvider::OpenAI => "gpt-4o",
             AiProvider::OpenAICompatible => "your-model-name",
             AiProvider::Llama => "llama3.3",
+            AiProvider::Kimi => "default",
         }
     }
 }

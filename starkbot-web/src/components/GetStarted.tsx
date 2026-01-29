@@ -9,12 +9,12 @@ const steps = [
   {
     number: 2,
     title: 'Configure',
-    description: 'Set up your environment variables',
+    description: 'Set up your env vars and x402 facilitator',
   },
   {
     number: 3,
     title: 'Run with Docker',
-    description: 'Build and run with a single command',
+    description: 'Deploy and connect your wallet',
   },
 ]
 
@@ -26,7 +26,7 @@ export function GetStarted() {
           <span className="gradient-text">Get Started in Minutes</span>
         </h2>
         <p className="text-slate-400 mb-16 max-w-2xl mx-auto">
-          Setting up StarkBot is quick and easy
+          Self-host your Web3-native AI with Docker or deploy to the cloud
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
@@ -87,7 +87,7 @@ export function GetStarted() {
               </li>
               <li className="flex gap-3">
                 <span className="text-stark-400 font-bold">4.</span>
-                <span>Configure your environment variables (API keys, etc.)</span>
+                <span>Configure environment variables (API keys, DeFi Relay x402 facilitator)</span>
               </li>
               <li className="flex gap-3">
                 <span className="text-stark-400 font-bold">5.</span>

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
-import { Send, RotateCcw, Copy, Check, Wallet } from 'lucide-react';
+import { Send, RotateCcw, Copy, Check, Wallet, Bug } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import ChatMessage from '@/components/chat/ChatMessage';
 import TypingIndicator from '@/components/chat/TypingIndicator';
 import ExecutionProgress from '@/components/chat/ExecutionProgress';
+import DebugPanel from '@/components/chat/DebugPanel';
 import CommandAutocomplete from '@/components/chat/CommandAutocomplete';
 import { useGateway } from '@/hooks/useGateway';
 import { useWallet } from '@/hooks/useWallet';
@@ -331,8 +332,30 @@ export default function AgentChat() {
           </div>
         </div>
 
-        {/* Wallet Info */}
+        {/* Debug Toggle + Wallet Info */}
         <div className="flex items-center gap-4">
+          {/* Debug Toggle - to the left of wallet */}
+          <button
+            onClick={() => setDebugMode(!debugMode)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              debugMode
+                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
+                : 'bg-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+            }`}
+            title="Toggle debug mode"
+          >
+            <Bug className="w-4 h-4" />
+            <span className="hidden sm:inline">Debug</span>
+            {/* Toggle switch */}
+            <div className={`w-8 h-4 rounded-full transition-colors ${debugMode ? 'bg-cyan-500' : 'bg-slate-600'}`}>
+              <div
+                className={`w-3 h-3 rounded-full bg-white transition-transform transform mt-0.5 ${
+                  debugMode ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'
+                }`}
+              />
+            </div>
+          </button>
+
           {walletConnected && address ? (
             <div className="flex items-center gap-3">
               {/* Wallet Address */}
@@ -415,6 +438,11 @@ export default function AgentChat() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Debug Panel - shows when debug mode is enabled */}
+      {debugMode && (
+        <DebugPanel className="mx-6 mb-4" />
+      )}
 
       {/* Execution Progress */}
       <ExecutionProgress className="mx-6 mb-4" />

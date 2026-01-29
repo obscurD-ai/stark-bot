@@ -11,5 +11,5 @@ mod client;
 mod signer;
 
 pub use types::*;
-pub use client::{X402Client, is_x402_endpoint};
+pub use client::{X402Client, X402Response, is_x402_endpoint};
 pub use signer::X402Signer;

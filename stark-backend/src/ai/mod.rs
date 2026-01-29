@@ -11,9 +11,12 @@ pub use types::{
     ToolResponse,
 };
 
+use crate::gateway::events::EventBroadcaster;
+use crate::gateway::protocol::GatewayEvent;
 use crate::models::{AgentSettings, AiProvider};
 use crate::tools::ToolDefinition;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -70,8 +73,8 @@ impl AiClient {
                 )?;
                 Ok(AiClient::Claude(client))
             }
-            AiProvider::OpenAI | AiProvider::OpenAICompatible => {
-                // Both OpenAI and OpenAI-compatible use the same client
+            AiProvider::OpenAI | AiProvider::OpenAICompatible | AiProvider::Kimi => {
+                // OpenAI, OpenAI-compatible, and Kimi all use the same client
                 // The endpoint from settings is always used
                 let client = OpenAIClient::new_with_x402_and_tokens(
                     &settings.api_key,
@@ -102,6 +105,34 @@ impl AiClient {
         match self {
             AiClient::Claude(client) => client.generate_text(messages).await,
             AiClient::OpenAI(client) => client.generate_text(messages).await,
+            AiClient::Llama(client) => client.generate_text(messages).await,
+        }
+    }
+
+    /// Generate text and emit x402 payment event if applicable
+    pub async fn generate_text_with_events(
+        &self,
+        messages: Vec<Message>,
+        broadcaster: &Arc<EventBroadcaster>,
+        channel_id: i64,
+    ) -> Result<String, String> {
+        match self {
+            AiClient::OpenAI(client) => {
+                let (content, payment) = client.generate_text_with_payment_info(messages).await?;
+                // Emit x402 payment event if payment was made
+                if let Some(payment_info) = payment {
+                    broadcaster.broadcast(GatewayEvent::x402_payment(
+                        channel_id,
+                        &payment_info.amount,
+                        &payment_info.asset,
+                        &payment_info.pay_to,
+                        payment_info.resource.as_deref(),
+                    ));
+                }
+                Ok(content)
+            }
+            // Other providers don't support x402
+            AiClient::Claude(client) => client.generate_text(messages).await,
             AiClient::Llama(client) => client.generate_text(messages).await,
         }
     }

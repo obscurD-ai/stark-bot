@@ -336,8 +336,8 @@ impl MessageDispatcher {
                 &message,
             ).await
         } else {
-            // Simple generation without tools
-            client.generate_text(messages).await
+            // Simple generation without tools - with x402 event emission
+            client.generate_text_with_events(messages, &self.broadcaster, message.channel_id).await
         };
 
         match final_response {
@@ -438,7 +438,7 @@ impl MessageDispatcher {
 
         if tools.is_empty() {
             log::warn!("[TOOL_LOOP] No tools available, falling back to text-only generation");
-            return client.generate_text(messages).await;
+            return client.generate_text_with_events(messages, &self.broadcaster, original_message.channel_id).await;
         }
 
         let mut conversation = messages.clone();
@@ -454,8 +454,8 @@ impl MessageDispatcher {
                 break;
             }
 
-            // Generate response (text-only since we're doing JSON-based tool calling)
-            let ai_content = client.generate_text(conversation.clone()).await?;
+            // Generate response (text-only since we're doing JSON-based tool calling) - with x402 events
+            let ai_content = client.generate_text_with_events(conversation.clone(), &self.broadcaster, original_message.channel_id).await?;
 
             log::info!("[TOOL_LOOP] Raw AI response: {}", ai_content);
 

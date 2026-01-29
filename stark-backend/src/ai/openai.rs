@@ -1,7 +1,7 @@
 use crate::ai::types::{AiResponse, ToolCall};
 use crate::ai::Message;
 use crate::tools::ToolDefinition;
-use crate::x402::{X402Client, is_x402_endpoint};
+use crate::x402::{X402Client, X402PaymentInfo, is_x402_endpoint};
 use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -192,6 +192,12 @@ impl OpenAIClient {
         Ok(response.content)
     }
 
+    /// Generate text and return payment info if x402 payment was made
+    pub async fn generate_text_with_payment_info(&self, messages: Vec<Message>) -> Result<(String, Option<X402PaymentInfo>), String> {
+        let response = self.generate_with_tools_internal(messages, vec![], vec![]).await?;
+        Ok((response.content, response.x402_payment))
+    }
+
     pub async fn generate_with_tools(
         &self,
         messages: Vec<Message>,
@@ -271,17 +277,19 @@ impl OpenAIClient {
         );
 
         // Use x402 client if available, otherwise use regular client
-        let response = if let Some(ref x402) = self.x402_client {
-            x402.post_with_payment(&self.endpoint, &request)
+        let (response, x402_payment) = if let Some(ref x402) = self.x402_client {
+            let x402_response = x402.post_with_payment(&self.endpoint, &request)
                 .await
-                .map_err(|e| format!("x402 request failed: {}", e))?
+                .map_err(|e| format!("x402 request failed: {}", e))?;
+            (x402_response.response, x402_response.payment)
         } else {
-            self.client
+            let resp = self.client
                 .post(&self.endpoint)
                 .json(&request)
                 .send()
                 .await
-                .map_err(|e| format!("OpenAI API request failed: {}", e))?
+                .map_err(|e| format!("OpenAI API request failed: {}", e))?;
+            (resp, None)
         };
 
         let status = response.status();
@@ -356,6 +364,7 @@ impl OpenAIClient {
             } else {
                 Some("end_turn".to_string())
             },
+            x402_payment,
         })
     }
 

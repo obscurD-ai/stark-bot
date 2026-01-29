@@ -6,7 +6,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::signer::X402Signer;
-use super::types::PaymentRequired;
+use super::types::{PaymentRequired, X402PaymentInfo};
+
+/// Result of a request that may have required payment
+pub struct X402Response {
+    pub response: Response,
+    pub payment: Option<X402PaymentInfo>,
+}
 
 /// HTTP client that automatically handles x402 payment flow
 pub struct X402Client {
@@ -38,11 +44,12 @@ impl X402Client {
     }
 
     /// Make a POST request with automatic x402 payment handling
+    /// Returns both the response and payment info if a payment was made
     pub async fn post_with_payment<T: Serialize>(
         &self,
         url: &str,
         body: &T,
-    ) -> Result<Response, String> {
+    ) -> Result<X402Response, String> {
         log::info!("[X402] Making request to {}", url);
 
         // First request without payment
@@ -57,7 +64,10 @@ impl X402Client {
         // Check if payment is required
         if initial_response.status().as_u16() != 402 {
             log::info!("[X402] No payment required, status: {}", initial_response.status());
-            return Ok(initial_response);
+            return Ok(X402Response {
+                response: initial_response,
+                payment: None,
+            });
         }
 
         log::info!("[X402] Received 402 Payment Required");
@@ -84,11 +94,19 @@ impl X402Client {
         let requirements = payment_required.accepts.first()
             .ok_or_else(|| "No payment options in 402 response".to_string())?;
 
+        // Create payment info before signing
+        let payment_info = X402PaymentInfo::from_requirements(requirements);
+
         // Sign the payment
         let payment_payload = self.signer.sign_payment(requirements).await?;
         let payment_header_value = payment_payload.to_base64()?;
 
-        log::info!("[X402] Signed payment, retrying request with X-PAYMENT header");
+        log::info!(
+            "[X402] Signed payment for {} {} to {}, retrying request",
+            payment_info.amount_formatted,
+            payment_info.asset,
+            payment_info.pay_to
+        );
 
         // Retry with payment
         let paid_response = self.client
@@ -102,7 +120,10 @@ impl X402Client {
 
         log::info!("[X402] Payment sent, response status: {}", paid_response.status());
 
-        Ok(paid_response)
+        Ok(X402Response {
+            response: paid_response,
+            payment: Some(payment_info),
+        })
     }
 }
 

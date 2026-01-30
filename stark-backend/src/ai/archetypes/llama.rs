@@ -42,6 +42,13 @@ impl LlamaArchetype {
             }
         }
 
+        // Try emoji-prefixed tool call format:
+        // 🔧 Tool Call: tool_name
+        // json { ... }
+        if let Some(result) = self.try_parse_emoji_tool_call(content) {
+            return Some(result);
+        }
+
         // Try to extract JSON from markdown code blocks
         if let Some(captures) = self.json_block_pattern.captures(content) {
             if let Some(json_match) = captures.get(1) {
@@ -74,6 +81,70 @@ impl LlamaArchetype {
         }
 
         None
+    }
+
+    /// Try to parse emoji-prefixed tool call format:
+    /// 🔧 Tool Call: tool_name
+    /// json { ... }
+    /// or
+    /// 🔧 Tool Call: tool_name
+    /// { ... }
+    fn try_parse_emoji_tool_call(&self, content: &str) -> Option<AgentResponse> {
+        // Look for the emoji tool call pattern
+        let tool_call_marker = "🔧 Tool Call:";
+        let alt_marker = "🔧 **Tool Call:**";
+
+        let (marker_pos, marker_len) = if let Some(pos) = content.find(tool_call_marker) {
+            (pos, tool_call_marker.len())
+        } else if let Some(pos) = content.find(alt_marker) {
+            (pos, alt_marker.len())
+        } else {
+            return None;
+        };
+
+        // Extract tool name (rest of line after marker)
+        let after_marker = &content[marker_pos + marker_len..];
+        let tool_name_end = after_marker.find('\n').unwrap_or(after_marker.len());
+        let tool_name = after_marker[..tool_name_end].trim().trim_matches('`').to_string();
+
+        if tool_name.is_empty() {
+            return None;
+        }
+
+        log::info!("[PARSE] Found emoji tool call format for tool: {}", tool_name);
+
+        // Find the JSON parameters - could be after "json" keyword or just raw JSON
+        let params_section = &after_marker[tool_name_end..];
+
+        // Try to find JSON object
+        let json_str = if let Some(json_start) = params_section.find('{') {
+            // Extract balanced JSON
+            if let Some(extracted) = self.extract_balanced_json(params_section, json_start) {
+                extracted
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        };
+
+        // Parse the JSON parameters
+        match serde_json::from_str::<Value>(&json_str) {
+            Ok(params) => {
+                log::info!("[PARSE] Successfully parsed emoji tool call: {} with params", tool_name);
+                Some(AgentResponse {
+                    body: format!("Executing {}...", tool_name),
+                    tool_call: Some(TextToolCall {
+                        tool_name,
+                        tool_params: params,
+                    }),
+                })
+            }
+            Err(e) => {
+                log::warn!("[PARSE] Failed to parse JSON params for emoji tool call: {}", e);
+                None
+            }
+        }
     }
 
     /// Try to parse typed JSON format ({"type": "message"/"function", ...})

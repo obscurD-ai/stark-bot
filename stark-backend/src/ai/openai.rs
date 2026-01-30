@@ -318,7 +318,7 @@ impl OpenAIClient {
             messages: api_messages,
             max_tokens: self.max_tokens,
             tools: openai_tools.clone(),
-            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
+            tool_choice: if tools.is_empty() { None } else { Some("required".to_string()) },
             stream: None,
         };
 
@@ -537,7 +537,7 @@ impl OpenAIClient {
             messages: api_messages,
             max_tokens: self.max_tokens,
             tools: openai_tools.clone(),
-            tool_choice: if tools.is_empty() { None } else { Some("auto".to_string()) },
+            tool_choice: if tools.is_empty() { None } else { Some("required".to_string()) },
             stream: Some(true),
         };
 

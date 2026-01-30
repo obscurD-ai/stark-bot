@@ -22,6 +22,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::SubagentStatusTool::new()));
     registry.register(Arc::new(builtin::SetAgentSubtypeTool::new()));
     registry.register(Arc::new(builtin::AskUserTool::new()));
+    registry.register(Arc::new(builtin::SayToUserTool::new()));
     registry.register(Arc::new(builtin::MemorySearchTool::new()));
     registry.register(Arc::new(builtin::MemoryGetTool::new()));
 

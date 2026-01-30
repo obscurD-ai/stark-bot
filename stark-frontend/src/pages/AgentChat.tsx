@@ -158,11 +158,8 @@ export default function AgentChat() {
       const statusEmoji = event.success ? '✅' : '❌';
       const statusText = event.success ? 'Success' : 'Failed';
 
-      // Truncate content if too long for chat display
+      // Show full content - no truncation for visibility
       let displayContent = event.content;
-      if (displayContent.length > 2000) {
-        displayContent = displayContent.substring(0, 2000) + '\n... (truncated)';
-      }
 
       const content = `${statusEmoji} **Tool Result:** \`${event.tool_name}\` - ${statusText} (${event.duration_ms}ms)\n\`\`\`\n${displayContent}\n\`\`\``;
 
@@ -268,18 +265,19 @@ export default function AgentChat() {
     const handleThinking = (data: unknown) => {
       const event = data as { message: string; timestamp: string };
       console.log('[Agent] Thinking:', event.message);
-      // Update typing indicator with progress message or add a system message
+      // Add thinking message - only filter duplicate "Still thinking" progress messages
       setMessages((prev) => {
-        // Remove any previous "still thinking" system message to avoid spam
-        const filtered = prev.filter(
-          (m) => !(m.role === 'system' && m.content.startsWith('Still thinking'))
-        );
+        // Only filter out repeated "Still thinking..." messages (same content pattern)
+        const isStillThinking = event.message.startsWith('Still thinking');
+        const filtered = isStillThinking
+          ? prev.filter((m) => !(m.role === 'system' && m.content.startsWith('Still thinking')))
+          : prev;
         return [
           ...filtered,
           {
             id: crypto.randomUUID(),
             role: 'system' as MessageRole,
-            content: event.message,
+            content: `💭 ${event.message}`,
             timestamp: new Date(event.timestamp),
           },
         ];
@@ -301,12 +299,28 @@ export default function AgentChat() {
       ]);
     };
 
+    const handleWarning = (data: unknown) => {
+      const event = data as { warning_type: string; message: string; attempt: number; timestamp: string };
+      console.warn('[Agent] Warning:', event.warning_type, event.message);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'system' as MessageRole,
+          content: `⚠️ [${event.warning_type}] ${event.message}`,
+          timestamp: new Date(event.timestamp),
+        },
+      ]);
+    };
+
     on('agent.thinking', handleThinking);
     on('agent.error', handleError);
+    on('agent.warning', handleWarning);
 
     return () => {
       off('agent.thinking', handleThinking);
       off('agent.error', handleError);
+      off('agent.warning', handleWarning);
     };
   }, [on, off]);
 

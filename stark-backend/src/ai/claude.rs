@@ -55,6 +55,20 @@ struct SimpleClaudeMessage {
     content: String,
 }
 
+/// Tool choice options for Claude API
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum ToolChoice {
+    /// Model decides whether to use tools
+    Auto,
+    /// Model MUST use a tool
+    Any,
+    /// Model MUST use the specified tool
+    #[allow(dead_code)]
+    Tool { name: String },
+}
+
 #[derive(Debug, Serialize)]
 struct ClaudeToolRequest {
     model: String,
@@ -64,6 +78,8 @@ struct ClaudeToolRequest {
     system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ClaudeTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<ToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<ThinkingConfig>,
 }
@@ -277,15 +293,22 @@ impl ClaudeClient {
             .collect();
 
         let thinking = self.build_thinking_config();
+        let has_tools = !claude_tools.is_empty();
         let request = ClaudeToolRequest {
             model: self.model.clone(),
             messages: api_messages,
             max_tokens: 4096,
             system: system_message,
-            tools: if claude_tools.is_empty() {
-                None
-            } else {
+            tools: if has_tools {
                 Some(claude_tools)
+            } else {
+                None
+            },
+            // Force tool use when tools are available
+            tool_choice: if has_tools {
+                Some(ToolChoice::Any)
+            } else {
+                None
             },
             thinking,
         };

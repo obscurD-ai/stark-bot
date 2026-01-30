@@ -231,9 +231,14 @@ impl MessageDispatcher {
         ) {
             Ok(id) => id,
             Err(e) => {
+                let error_msg = format!("Identity error: {}", e);
                 log::error!("Failed to get/create identity: {}", e);
+                self.broadcaster.broadcast(GatewayEvent::agent_error(
+                    message.channel_id,
+                    &error_msg,
+                ));
                 self.execution_tracker.complete_execution(message.channel_id);
-                return DispatchResult::error(format!("Identity error: {}", e));
+                return DispatchResult::error(error_msg);
             }
         };
 
@@ -254,9 +259,14 @@ impl MessageDispatcher {
         ) {
             Ok(s) => s,
             Err(e) => {
+                let error_msg = format!("Session error: {}", e);
                 log::error!("Failed to get/create session: {}", e);
+                self.broadcaster.broadcast(GatewayEvent::agent_error(
+                    message.channel_id,
+                    &error_msg,
+                ));
                 self.execution_tracker.complete_execution(message.channel_id);
-                return DispatchResult::error(format!("Session error: {}", e));
+                return DispatchResult::error(error_msg);
             }
         };
 
@@ -315,6 +325,10 @@ impl MessageDispatcher {
             Err(e) => {
                 let error = format!("Failed to create AI client: {}", e);
                 log::error!("{}", error);
+                self.broadcaster.broadcast(GatewayEvent::agent_error(
+                    message.channel_id,
+                    &error,
+                ));
                 self.execution_tracker.complete_execution(message.channel_id);
                 return DispatchResult::error(error);
             }
@@ -561,6 +575,12 @@ impl MessageDispatcher {
             Err(e) => {
                 let error = format!("AI generation error ({}): {}", archetype_id, e);
                 log::error!("{}", error);
+
+                // Broadcast error to frontend
+                self.broadcaster.broadcast(GatewayEvent::agent_error(
+                    message.channel_id,
+                    &error,
+                ));
 
                 // Complete execution tracking on error
                 self.execution_tracker.complete_execution(message.channel_id);
@@ -901,6 +921,12 @@ impl MessageDispatcher {
                 iterations,
                 orchestrator.current_mode()
             );
+
+            // Broadcast iteration progress to frontend
+            self.broadcaster.broadcast(GatewayEvent::agent_thinking(
+                original_message.channel_id,
+                &format!("Iteration {} ({} mode)...", iterations, orchestrator.current_mode()),
+            ));
 
             // Check if execution was cancelled (e.g., user sent /new)
             if self.execution_tracker.is_cancelled(original_message.channel_id) {
@@ -1346,6 +1372,12 @@ impl MessageDispatcher {
                 orchestrator.current_mode()
             );
 
+            // Broadcast iteration progress to frontend
+            self.broadcaster.broadcast(GatewayEvent::agent_thinking(
+                original_message.channel_id,
+                &format!("Iteration {} ({} mode)...", iterations, orchestrator.current_mode()),
+            ));
+
             // Check if execution was cancelled (e.g., user sent /new)
             if self.execution_tracker.is_cancelled(original_message.channel_id) {
                 log::info!("[TEXT_ORCHESTRATED] Execution cancelled by user, stopping loop");
@@ -1656,6 +1688,13 @@ impl MessageDispatcher {
                     }
                 }
                 None => {
+                    // Broadcast that parsing failed - show the raw AI content for debugging
+                    log::warn!("[TEXT_ORCHESTRATED] Failed to parse AI response, using raw content");
+                    self.broadcaster.broadcast(GatewayEvent::agent_thinking(
+                        original_message.channel_id,
+                        &format!("Parse failed, raw AI response:\n{}", &ai_content[..ai_content.len().min(500)]),
+                    ));
+
                     if tool_call_log.is_empty() {
                         final_response = ai_content;
                     } else {

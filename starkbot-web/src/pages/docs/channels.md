@@ -2,16 +2,16 @@
 name: Channels
 ---
 
-Channels connect StarkBot to messaging platforms. Messages from any channel are processed through the same AI pipeline.
+Channels connect StarkBot to messaging platforms. All messages flow through the same AI pipeline.
 
 ## Supported Platforms
 
-| Platform | Status | Features |
-|----------|--------|----------|
-| Telegram | Supported | Bot API, user identification |
-| Slack | Supported | Bot + App tokens, threads |
-| Discord | Supported | Serenity library, guilds |
-| Web | Built-in | Dashboard chat interface |
+| Platform | Library | Features |
+|----------|---------|----------|
+| **Telegram** | Teloxide | Polling, commands, groups |
+| **Slack** | slack-morphism | Socket mode, threads, mentions |
+| **Discord** | Serenity | Guilds, channels, DMs |
+| **Web** | Built-in | Dashboard chat interface |
 
 ---
 
@@ -19,34 +19,30 @@ Channels connect StarkBot to messaging platforms. Messages from any channel are 
 
 ### Setup
 
-1. Create a bot with [@BotFather](https://t.me/BotFather)
-2. Get your bot token
-3. Add the channel in StarkBot dashboard
+1. Message [@BotFather](https://t.me/BotFather) on Telegram
+2. Send `/newbot` and follow prompts
+3. Save your bot token
 
-### Configuration
+### Add to StarkBot
 
 ```json
 {
-  "platform": "telegram",
+  "channel_type": "telegram",
   "name": "My Telegram Bot",
-  "config": {
-    "bot_token": "123456789:ABCdefGHI..."
-  }
+  "bot_token": "123456789:ABCdef..."
 }
 ```
 
-### Features
+### Group Messages
 
-- **Polling** - Receives messages via long polling
-- **User Identification** - Tracks Telegram user IDs
-- **Rich Responses** - Supports markdown formatting
-- **Commands** - Bot commands like /start, /help
+By default, bots only see:
+- Messages starting with `/`
+- Replies to the bot
+- @mentions
 
-### Testing
+To see all messages: `/setprivacy` → Disable, or make bot admin.
 
-1. Start the channel in dashboard
-2. Open Telegram and message your bot
-3. Verify response in both Telegram and dashboard logs
+See [Telegram Integration](/docs/telegram) for detailed setup.
 
 ---
 
@@ -54,40 +50,29 @@ Channels connect StarkBot to messaging platforms. Messages from any channel are 
 
 ### Setup
 
-1. Create a Slack App at [api.slack.com](https://api.slack.com/apps)
-2. Enable Socket Mode
+1. Create app at [api.slack.com/apps](https://api.slack.com/apps)
+2. Enable **Socket Mode**
 3. Add Bot Token Scopes:
    - `chat:write`
-   - `channels:history`
-   - `channels:read`
+   - `channels:history`, `channels:read`
    - `app_mentions:read`
 4. Install to workspace
-5. Get Bot Token and App Token
+5. Get Bot Token (`xoxb-...`) and App Token (`xapp-...`)
 
-### Configuration
+### Add to StarkBot
 
 ```json
 {
-  "platform": "slack",
+  "channel_type": "slack",
   "name": "Slack Bot",
-  "config": {
-    "bot_token": "xoxb-...",
-    "app_token": "xapp-..."
-  }
+  "bot_token": "xoxb-...",
+  "app_token": "xapp-..."
 }
 ```
 
-### Features
-
-- **Socket Mode** - Real-time message delivery
-- **Threads** - Respects Slack threading
-- **Channels** - Works in public/private channels
-- **DMs** - Direct message support
-- **Mentions** - Responds to @mentions
-
 ### Event Subscriptions
 
-Enable these events in your Slack App:
+Enable these events:
 - `message.channels`
 - `message.groups`
 - `message.im`
@@ -99,97 +84,76 @@ Enable these events in your Slack App:
 
 ### Setup
 
-1. Create application at [Discord Developer Portal](https://discord.com/developers/applications)
-2. Create a Bot under the application
-3. Get the bot token
-4. Generate OAuth2 invite URL with scopes:
-   - `bot`
-   - `applications.commands`
-5. Add bot permissions:
-   - Send Messages
-   - Read Message History
-   - View Channels
-6. Invite bot to your server
+1. Create app at [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create Bot under application
+3. Enable **Message Content Intent**
+4. Generate invite URL:
+   - Scopes: `bot`, `applications.commands`
+   - Permissions: Send Messages, Read Message History, View Channels
+5. Invite to your server
 
-### Configuration
+### Add to StarkBot
 
 ```json
 {
-  "platform": "discord",
+  "channel_type": "discord",
   "name": "Discord Bot",
-  "config": {
-    "bot_token": "MTIz..."
-  }
+  "bot_token": "MTIz..."
 }
 ```
 
-### Features
+### Required Intents
 
-- **Serenity Framework** - Robust Discord library
-- **Guilds** - Multi-server support
-- **Channels** - Text channel messages
-- **User Tracking** - Discord user identification
-- **Rich Embeds** - Formatted responses
-
-### Gateway Intents
-
-The bot requires these intents:
 - `GUILD_MESSAGES`
 - `MESSAGE_CONTENT`
 - `DIRECT_MESSAGES`
-
-Enable "Message Content Intent" in Developer Portal.
 
 ---
 
 ## Web Channel
 
-The built-in web channel is always available through the dashboard.
-
-### Access
-
-Navigate to **Agent Chat** in the dashboard.
+Always available through the dashboard. No configuration needed.
 
 ### Features
 
-- **Session Management** - Persistent conversations
-- **Slash Commands** - Built-in commands (/help, /new, /reset)
-- **Real-Time** - WebSocket-powered updates
-- **Export** - Download conversation history
+- Persistent sessions
+- Slash commands (`/help`, `/new`, `/reset`, `/export`)
+- Real-time tool progress
+- Conversation export
 
-### Slash Commands
+### Commands
 
 | Command | Description |
 |---------|-------------|
-| /help | Show available commands |
-| /new | Start new conversation |
-| /reset | Clear conversation history |
-| /clear | Clear chat display |
-| /skills | List available skills |
-| /tools | List available tools |
-| /model | Show current AI model |
-| /export | Download conversation as JSON |
+| `/help` | List commands |
+| `/new` | Start new session |
+| `/reset` | Clear history |
+| `/clear` | Clear display |
+| `/skills` | List skills |
+| `/tools` | List tools |
+| `/model` | Show AI config |
+| `/export` | Download JSON |
+| `/stop` | Stop execution |
 
 ---
 
 ## Channel Management
 
-### Adding Channels
+### Adding
 
-1. Navigate to **Channels** in dashboard
+1. Go to **Channels**
 2. Click **Add Channel**
-3. Select platform
-4. Enter configuration
-5. Save and start
+3. Select platform, enter config
+4. Save
 
-### Starting/Stopping
+### Starting / Stopping
 
-Each channel can be independently started or stopped:
+Each channel runs independently:
 
-- **Start** - Begin listening for messages
-- **Stop** - Pause the channel (config preserved)
+- **Start** — Begin listening
+- **Stop** — Pause (config preserved)
 
-### Status Indicators
+### Status
 
 | Status | Meaning |
 |--------|---------|
@@ -197,56 +161,42 @@ Each channel can be independently started or stopped:
 | Stopped | Not listening |
 | Error | Connection failed |
 
-### Editing Channels
-
-Click on a channel to edit its configuration. Changes take effect after restarting the channel.
-
-### Deleting Channels
-
-Remove channels you no longer need. This stops the channel and removes its configuration.
-
 ---
 
 ## Message Flow
 
-All channels follow the same message processing flow:
+All platforms follow the same flow:
 
 ```
 Platform Message
        ↓
-Channel Handler (telegram.rs, slack.rs, discord.rs)
+Channel Handler (telegram/slack/discord)
        ↓
-Normalize to NormalizedMessage
+NormalizedMessage {
+  channel_type: "telegram",
+  channel_id: "chat_123",
+  user_id: "user_456",
+  username: "john",
+  content: "Hello!",
+  timestamp: "2024-01-15T10:30:00Z"
+}
        ↓
 Message Dispatcher
        ↓
-AI Processing + Tool Execution
+AI + Tools + Memory
        ↓
-Response back to Platform
-```
-
-### NormalizedMessage
-
-Platform-specific messages are converted to a standard format:
-
-```rust
-struct NormalizedMessage {
-    platform: String,      // "telegram", "slack", "discord", "web"
-    channel_id: String,    // Platform-specific channel ID
-    user_id: String,       // Platform-specific user ID
-    username: String,      // Display name
-    content: String,       // Message text
-    timestamp: DateTime,   // When received
-}
+Response to Platform
 ```
 
 ---
 
-## Identities
+## Cross-Platform Identity
 
-StarkBot tracks user identities across platforms. View and manage these in the **Identities** page.
+StarkBot tracks users across platforms. The same person messaging from Telegram and Discord is recognized as one identity.
+
+View identities in the **Identities** page.
 
 This enables:
-- Cross-platform user recognition
-- Personalized responses
-- User-specific memory
+- Shared memory across platforms
+- Consistent personalization
+- Unified user tracking

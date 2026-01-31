@@ -9,8 +9,10 @@ use crate::tools::types::ToolGroup;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSubtype {
-    /// Finance/DeFi specialist - crypto swaps, transfers, web3 operations
+    /// No subtype selected yet - agent MUST choose one before using other tools
     #[default]
+    None,
+    /// Finance/DeFi specialist - crypto swaps, transfers, web3 operations
     Finance,
     /// Code engineer - software development, git, code editing
     CodeEngineer,
@@ -19,7 +21,7 @@ pub enum AgentSubtype {
 }
 
 impl AgentSubtype {
-    /// Get all available subtypes
+    /// Get all selectable subtypes (excludes None)
     pub fn all() -> Vec<AgentSubtype> {
         vec![
             AgentSubtype::Finance,
@@ -28,53 +30,79 @@ impl AgentSubtype {
         ]
     }
 
-    /// Get the tool groups allowed for this subtype
-    /// Note: System, Web, and Filesystem are always available as "core" tools
-    pub fn allowed_tool_groups(&self) -> Vec<ToolGroup> {
-        // Core groups available to all subtypes
-        let mut groups = vec![
-            ToolGroup::System,     // set_agent_subtype, subagent
-            ToolGroup::Web,        // web_fetch
-            ToolGroup::Filesystem, // read_file, list_files
-        ];
+    /// Check if a subtype has been selected
+    pub fn is_selected(&self) -> bool {
+        !matches!(self, AgentSubtype::None)
+    }
 
-        // Add subtype-specific groups
+    /// Get the tool groups allowed for this subtype
+    /// Note: When None, only System tools are available (to allow set_agent_subtype)
+    pub fn allowed_tool_groups(&self) -> Vec<ToolGroup> {
         match self {
-            AgentSubtype::Finance => {
-                groups.push(ToolGroup::Finance); // web3_tx, token_lookup, x402_*, etc.
+            AgentSubtype::None => {
+                // Only system tools when no subtype selected
+                // This forces the agent to call set_agent_subtype first
+                vec![ToolGroup::System]
             }
-            AgentSubtype::CodeEngineer => {
-                groups.push(ToolGroup::Development); // edit_file, grep, glob, git, etc.
-                groups.push(ToolGroup::Exec);        // exec command
-            }
-            AgentSubtype::Secretary => {
-                groups.push(ToolGroup::Messaging); // agent_send
-                groups.push(ToolGroup::Social);    // twitter, scheduling tools
+            _ => {
+                // Core groups available to all selected subtypes
+                let mut groups = vec![
+                    ToolGroup::System,     // set_agent_subtype, subagent
+                    ToolGroup::Web,        // web_fetch
+                    ToolGroup::Filesystem, // read_file, list_files
+                ];
+
+                // Add subtype-specific groups
+                match self {
+                    AgentSubtype::Finance => {
+                        groups.push(ToolGroup::Finance); // web3_tx, token_lookup, x402_*, etc.
+                    }
+                    AgentSubtype::CodeEngineer => {
+                        groups.push(ToolGroup::Development); // edit_file, grep, glob, git, etc.
+                        groups.push(ToolGroup::Exec);        // exec command
+                    }
+                    AgentSubtype::Secretary => {
+                        groups.push(ToolGroup::Messaging); // agent_send
+                        groups.push(ToolGroup::Social);    // twitter, scheduling tools
+                    }
+                    AgentSubtype::None => unreachable!(), // Handled above
+                }
+
+                groups
             }
         }
-
-        groups
     }
 
     /// Get the skill tags allowed for this subtype
     /// Note: "general" and "all" tags are available to ALL subtypes
+    /// When None, no skills are available (must select subtype first)
     pub fn allowed_skill_tags(&self) -> Vec<&'static str> {
-        // Universal tags available to all subtypes
-        let mut tags = vec!["general", "all"];
-
-        // Add subtype-specific tags
         match self {
-            AgentSubtype::Finance => tags.extend(["crypto", "defi", "transfer", "swap", "finance", "wallet", "token"]),
-            AgentSubtype::CodeEngineer => tags.extend(["development", "git", "testing", "debugging", "review", "code", "github"]),
-            AgentSubtype::Secretary => tags.extend(["social", "marketing", "messaging", "twitter", "scheduling", "communication", "social-media"]),
-        }
+            AgentSubtype::None => {
+                // No skills available until subtype is selected
+                vec![]
+            }
+            _ => {
+                // Universal tags available to all selected subtypes
+                let mut tags = vec!["general", "all"];
 
-        tags
+                // Add subtype-specific tags
+                match self {
+                    AgentSubtype::Finance => tags.extend(["crypto", "defi", "transfer", "swap", "finance", "wallet", "token"]),
+                    AgentSubtype::CodeEngineer => tags.extend(["development", "git", "testing", "debugging", "review", "code", "github"]),
+                    AgentSubtype::Secretary => tags.extend(["social", "marketing", "messaging", "twitter", "scheduling", "communication", "social-media"]),
+                    AgentSubtype::None => unreachable!(),
+                }
+
+                tags
+            }
+        }
     }
 
     /// Human-readable label for UI display
     pub fn label(&self) -> &'static str {
         match self {
+            AgentSubtype::None => "Selecting...",
             AgentSubtype::Finance => "Finance",
             AgentSubtype::CodeEngineer => "CodeEngineer",
             AgentSubtype::Secretary => "Secretary",
@@ -84,6 +112,7 @@ impl AgentSubtype {
     /// Get description of what this subtype does
     pub fn description(&self) -> &'static str {
         match self {
+            AgentSubtype::None => "No toolbox selected - must choose one first",
             AgentSubtype::Finance => "Crypto swaps, transfers, DeFi operations, token lookups",
             AgentSubtype::CodeEngineer => "Code editing, git operations, testing, debugging",
             AgentSubtype::Secretary => "Social media, messaging, scheduling, marketing",
@@ -93,13 +122,14 @@ impl AgentSubtype {
     /// Get the string representation
     pub fn as_str(&self) -> &'static str {
         match self {
+            AgentSubtype::None => "none",
             AgentSubtype::Finance => "finance",
             AgentSubtype::CodeEngineer => "code_engineer",
             AgentSubtype::Secretary => "secretary",
         }
     }
 
-    /// Parse from string
+    /// Parse from string (does not parse "none" - use None variant directly)
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "finance" | "defi" | "crypto" | "swap" | "transfer" => Some(AgentSubtype::Finance),
@@ -116,6 +146,7 @@ impl AgentSubtype {
     /// Get emoji for this subtype
     pub fn emoji(&self) -> &'static str {
         match self {
+            AgentSubtype::None => "❓",
             AgentSubtype::Finance => "💰",
             AgentSubtype::CodeEngineer => "🛠️",
             AgentSubtype::Secretary => "📱",

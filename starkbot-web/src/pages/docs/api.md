@@ -2,32 +2,48 @@
 name: API Reference
 ---
 
-All API endpoints require authentication via Bearer token (except login).
+REST API on port 8080, WebSocket gateway on port 8081. All endpoints except auth require `Authorization: Bearer <token>`.
 
 ## Authentication
 
-### Login
+StarkBot uses Sign In With Ethereum (SIWE).
 
-```
-POST /api/auth/login
+### Get Challenge
+
+```http
+POST /api/auth/generate_challenge
+Content-Type: application/json
+
+{ "public_address": "0x1234..." }
 ```
 
-**Request Body:**
+**Response:**
 ```json
+{ "challenge": "Sign in to StarkBot as 0x1234... at 1704067200" }
+```
+
+### Validate Signature
+
+```http
+POST /api/auth/validate_auth
+Content-Type: application/json
+
 {
-  "secret_key": "your-secret-key"
+  "public_address": "0x1234...",
+  "challenge": "Sign in to StarkBot...",
+  "signature": "0xabc..."
 }
 ```
 
 **Response:**
 ```json
-{
-  "token": "session-uuid-token"
-}
+{ "token": "eyJhbGciOiJIUzI1NiIs..." }
 ```
 
-Use the token in subsequent requests:
-```
+### Validate Token
+
+```http
+POST /api/auth/validate
 Authorization: Bearer <token>
 ```
 
@@ -37,65 +53,26 @@ Authorization: Bearer <token>
 
 ### Send Message
 
-```
+```http
 POST /api/chat
-```
+Authorization: Bearer <token>
+Content-Type: application/json
 
-**Request Body:**
-```json
 {
-  "message": "Hello, StarkBot!",
-  "session_id": "optional-session-id"
+  "messages": [
+    { "role": "user", "content": "Hello!" }
+  ],
+  "session_id": "optional-uuid"
 }
 ```
 
-**Response:**
-```json
-{
-  "response": "Hello! How can I help you today?",
-  "session_id": "chat-session-uuid"
-}
-```
+**Response:** Streamed or complete AI response.
 
----
+### Stop Execution
 
-## API Keys
-
-### List API Keys
-
-```
-GET /api/api-keys
-```
-
-**Response:**
-```json
-{
-  "keys": [
-    { "service": "anthropic", "configured": true },
-    { "service": "openai", "configured": false },
-    { "service": "brave_search", "configured": true }
-  ]
-}
-```
-
-### Add/Update API Key
-
-```
-POST /api/api-keys
-```
-
-**Request Body:**
-```json
-{
-  "service": "anthropic",
-  "api_key": "sk-ant-..."
-}
-```
-
-### Delete API Key
-
-```
-DELETE /api/api-keys/:service
+```http
+POST /api/chat/stop
+Authorization: Bearer <token>
 ```
 
 ---
@@ -104,7 +81,7 @@ DELETE /api/api-keys/:service
 
 ### List Channels
 
-```
+```http
 GET /api/channels
 ```
 
@@ -114,9 +91,9 @@ GET /api/channels
   "channels": [
     {
       "id": "uuid",
-      "platform": "telegram",
-      "name": "My Telegram Bot",
-      "status": "running"
+      "channel_type": "telegram",
+      "name": "My Bot",
+      "enabled": true
     }
   ]
 }
@@ -124,169 +101,128 @@ GET /api/channels
 
 ### Create Channel
 
-```
+```http
 POST /api/channels
-```
+Content-Type: application/json
 
-**Telegram:**
-```json
 {
-  "platform": "telegram",
+  "channel_type": "telegram",
   "name": "My Bot",
-  "config": {
-    "bot_token": "123456:ABC..."
-  }
+  "bot_token": "123456:ABC..."
 }
 ```
 
-**Slack:**
-```json
-{
-  "platform": "slack",
-  "name": "Slack Bot",
-  "config": {
-    "bot_token": "xoxb-...",
-    "app_token": "xapp-..."
-  }
-}
-```
+For Slack, also include `app_token`.
 
-**Discord:**
-```json
-{
-  "platform": "discord",
-  "name": "Discord Bot",
-  "config": {
-    "bot_token": "..."
-  }
-}
-```
+### Start / Stop
 
-### Update Channel
-
-```
-PUT /api/channels/:id
-```
-
-### Delete Channel
-
-```
-DELETE /api/channels/:id
-```
-
-### Start/Stop Channel
-
-```
+```http
 POST /api/channels/:id/start
 POST /api/channels/:id/stop
 ```
 
+### Update / Delete
+
+```http
+PUT /api/channels/:id
+DELETE /api/channels/:id
+```
+
 ---
 
-## Agent Settings
+## Sessions
 
-### Get Settings
+### List Sessions
 
+```http
+GET /api/sessions
 ```
-GET /api/agent/settings
+
+### Get Transcript
+
+```http
+GET /api/sessions/:id/transcript
 ```
 
-**Response:**
-```json
+### Reset Session
+
+```http
+POST /api/sessions/:id/reset
+```
+
+---
+
+## Memories
+
+### List Memories
+
+```http
+GET /api/memories
+GET /api/memories?identity_id=xxx&memory_type=preference
+```
+
+### Search Memories
+
+```http
+POST /api/memories/search
+Content-Type: application/json
+
 {
-  "provider": "claude",
-  "model": "claude-sonnet-4-20250514",
-  "temperature": 0.7,
-  "max_tokens": 4096
+  "identity_id": "user-uuid",
+  "query": "timezone",
+  "memory_types": ["preference", "fact"],
+  "limit": 10
 }
 ```
 
-### Update Settings
+### Create / Update / Delete
 
-```
-PUT /api/agent/settings
+```http
+POST /api/memories
+PUT /api/memories/:id
+DELETE /api/memories/:id
 ```
 
-**Request Body:**
-```json
-{
-  "provider": "claude",
-  "model": "claude-opus-4-20250514",
-  "temperature": 0.5
-}
+### Merge Duplicates
+
+```http
+POST /api/memories/merge
+Content-Type: application/json
+
+{ "memory_ids": ["id1", "id2"] }
 ```
 
 ---
 
 ## Scheduling
 
-### List Cron Jobs
+### List Jobs
 
-```
-GET /api/cron
+```http
+GET /api/cron/jobs
 ```
 
-**Response:**
-```json
+### Create Job
+
+```http
+POST /api/cron/jobs
+Content-Type: application/json
+
 {
-  "jobs": [
-    {
-      "id": "uuid",
-      "name": "Daily Summary",
-      "cron_expression": "0 9 * * *",
-      "message": "Generate daily summary",
-      "enabled": true,
-      "next_run": "2024-01-15T09:00:00Z"
-    }
-  ]
+  "name": "Daily Summary",
+  "schedule": "0 9 * * *",
+  "message": "Generate today's summary"
 }
 ```
 
-### Create Cron Job
+### Job Actions
 
-```
-POST /api/cron
-```
-
-**Request Body:**
-```json
-{
-  "name": "Weekly Report",
-  "cron_expression": "0 9 * * MON",
-  "message": "Generate weekly report and send to Discord"
-}
-```
-
-### Delete Cron Job
-
-```
-DELETE /api/cron/:id
-```
-
-### Run Job Now
-
-```
-POST /api/cron/:id/run
-```
-
-### Pause/Resume Job
-
-```
-POST /api/cron/:id/pause
-POST /api/cron/:id/resume
-```
-
-### Get Job History
-
-```
-GET /api/cron/:id/runs
-```
-
-### Heartbeat Config
-
-```
-GET /api/heartbeat
-PUT /api/heartbeat
+```http
+POST /api/cron/jobs/:id/run      # Execute now
+POST /api/cron/jobs/:id/pause    # Pause
+POST /api/cron/jobs/:id/resume   # Resume
+GET  /api/cron/jobs/:id/runs     # History
+DELETE /api/cron/jobs/:id        # Delete
 ```
 
 ---
@@ -295,35 +231,31 @@ PUT /api/heartbeat
 
 ### List Skills
 
-```
+```http
 GET /api/skills
-```
-
-**Response:**
-```json
-{
-  "skills": [
-    {
-      "name": "weather",
-      "description": "Get weather information",
-      "arguments": ["location"]
-    }
-  ]
-}
 ```
 
 ### Upload Skill
 
-```
+```http
 POST /api/skills/upload
 Content-Type: multipart/form-data
+
+file: skill.md or skill.zip
 ```
 
-Upload a `.md` file or `.zip` archive.
+### Enable / Disable
 
-### Delete Skill
+```http
+PUT /api/skills/:name
+Content-Type: application/json
 
+{ "enabled": true }
 ```
+
+### Delete
+
+```http
 DELETE /api/skills/:name
 ```
 
@@ -333,7 +265,7 @@ DELETE /api/skills/:name
 
 ### List Tools
 
-```
+```http
 GET /api/tools
 ```
 
@@ -345,9 +277,7 @@ GET /api/tools
       "name": "web_search",
       "description": "Search the web",
       "group": "web",
-      "parameters": {
-        "query": "string"
-      }
+      "parameters": { "query": "string" }
     }
   ]
 }
@@ -355,50 +285,96 @@ GET /api/tools
 
 ---
 
-## Memories
+## Agent Settings
 
-### List Memories
+### Get / Update
 
-```
-GET /api/memories
-```
+```http
+GET /api/agent_settings
+PUT /api/agent_settings
+Content-Type: application/json
 
-### Delete Memory
-
-```
-DELETE /api/memories/:id
-```
-
----
-
-## Sessions
-
-### List Sessions
-
-```
-GET /api/sessions
-```
-
-### Get Session Messages
-
-```
-GET /api/sessions/:id
-```
-
----
-
-## Error Responses
-
-All endpoints return errors in this format:
-
-```json
 {
-  "error": "Error message description"
+  "endpoint": "https://api.anthropic.com/v1/messages",
+  "model_archetype": "claude",
+  "max_tokens": 4096,
+  "secret_key": "sk-ant-..."
 }
 ```
 
-Common HTTP status codes:
-- `401` - Unauthorized (invalid/missing token)
-- `404` - Not found
-- `400` - Bad request (invalid input)
-- `500` - Internal server error
+---
+
+## API Keys
+
+### List Keys
+
+```http
+GET /api/api_keys
+```
+
+**Response:**
+```json
+{
+  "keys": [
+    { "service": "anthropic", "configured": true },
+    { "service": "brave_search", "configured": false }
+  ]
+}
+```
+
+### Add / Delete
+
+```http
+POST /api/api_keys
+Content-Type: application/json
+
+{ "service": "anthropic", "api_key": "sk-ant-..." }
+
+DELETE /api/api_keys/:service
+```
+
+---
+
+## WebSocket Gateway
+
+Connect to `ws://localhost:8081` (or `wss://` in production).
+
+### Authentication
+
+```json
+{ "jsonrpc": "2.0", "method": "auth", "params": { "token": "..." }, "id": 1 }
+```
+
+### Subscribe to Events
+
+```json
+{ "jsonrpc": "2.0", "method": "subscribe", "params": { "channel": "all" }, "id": 2 }
+```
+
+### Event Types
+
+| Event | Payload |
+|-------|---------|
+| `agent.tool_call` | `{ tool, parameters }` |
+| `tool.result` | `{ tool, success, result }` |
+| `agent.thinking` | `{ message }` |
+| `tx.pending` | `{ hash, to, value }` |
+| `tx.confirmed` | `{ hash, status }` |
+| `confirmation.required` | `{ id, action, params }` |
+
+---
+
+## Errors
+
+All errors return:
+
+```json
+{ "error": "Description of what went wrong" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| 400 | Bad request |
+| 401 | Invalid or missing token |
+| 404 | Resource not found |
+| 500 | Server error |

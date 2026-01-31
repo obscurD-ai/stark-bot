@@ -4,6 +4,7 @@ use crate::db::Database;
 use crate::execution::ProcessManager;
 use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
+use crate::skills::SkillRegistry;
 use crate::tools::register::RegisterStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -334,6 +335,8 @@ pub struct ToolContext {
     pub subagent_manager: Option<Arc<SubAgentManager>>,
     /// Process manager for background command execution
     pub process_manager: Option<Arc<ProcessManager>>,
+    /// Skill registry for managing skills
+    pub skill_registry: Option<Arc<SkillRegistry>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -351,6 +354,7 @@ impl std::fmt::Debug for ToolContext {
             .field("database", &self.database.is_some())
             .field("subagent_manager", &self.subagent_manager.is_some())
             .field("process_manager", &self.process_manager.is_some())
+            .field("skill_registry", &self.skill_registry.is_some())
             .finish()
     }
 }
@@ -370,6 +374,7 @@ impl Default for ToolContext {
             database: None,
             subagent_manager: None,
             process_manager: None,
+            skill_registry: None,
         }
     }
 }
@@ -468,6 +473,12 @@ impl ToolContext {
     /// Add a ProcessManager to the context (for background command execution)
     pub fn with_process_manager(mut self, manager: Arc<ProcessManager>) -> Self {
         self.process_manager = Some(manager);
+        self
+    }
+
+    /// Add a SkillRegistry to the context (for skill management tools)
+    pub fn with_skill_registry(mut self, registry: Arc<SkillRegistry>) -> Self {
+        self.skill_registry = Some(registry);
         self
     }
 

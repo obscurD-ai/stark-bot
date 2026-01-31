@@ -2,42 +2,44 @@
 name: Telegram Integration
 ---
 
-This guide walks you through setting up a Telegram bot using @BotFather and connecting it to StarkBot.
+Set up a Telegram bot with @BotFather and connect it to StarkBot.
 
-## Creating Your Bot with BotFather
+## Create Your Bot
 
-Telegram's official [@BotFather](https://t.me/BotFather) manages all bot creation and configuration.
+### Step 1: BotFather
 
-### Step 1: Create a New Bot
+1. Open Telegram, search for **@BotFather**
+2. Send `/newbot`
+3. Enter a display name (e.g., "My StarkBot")
+4. Enter a username ending in `bot` (e.g., `mystarkbot_bot`)
+5. Save your bot token
 
-1. Open Telegram and search for **@BotFather**
-2. Start a chat and send `/newbot`
-3. Enter a **display name** for your bot (e.g., "My StarkBot")
-4. Enter a **username** ending in `bot` (e.g., `mystarkbot_bot`)
-5. BotFather will respond with your **bot token**
+Token format: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
 
-### Step 2: Save Your Token
+> **Keep this secure.** The token grants full control over your bot.
 
-The token looks like: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
+### Step 2: Add to StarkBot
 
-**Keep this token secure** — it grants full control over your bot.
-
-> If your token is ever compromised, use `/revoke` in BotFather to regenerate it.
+1. Go to **Channels** in the dashboard
+2. Click **Add Channel**
+3. Select **Telegram**
+4. Paste your bot token
+5. Save and start
 
 ---
 
-## Optional BotFather Settings
+## Bot Configuration
 
-Customize your bot's behavior with these commands:
+Customize your bot with BotFather commands:
 
 | Command | Description |
 |---------|-------------|
 | `/setname` | Change display name |
 | `/setdescription` | Set bot description |
-| `/setabouttext` | Set "About" section text |
-| `/setuserpic` | Upload a profile picture |
-| `/setjoingroups` | Allow/disallow group invites |
-| `/setprivacy` | Control message visibility in groups |
+| `/setabouttext` | Set "About" text |
+| `/setuserpic` | Upload profile picture |
+| `/setjoingroups` | Allow/disallow groups |
+| `/setprivacy` | Control message visibility |
 
 ---
 
@@ -45,59 +47,30 @@ Customize your bot's behavior with these commands:
 
 By default, bots in groups only receive:
 - Messages starting with `/`
-- Replies to the bot's messages
-- Messages where the bot is @mentioned
+- Replies to the bot
+- @mentions of the bot
 
-To receive **all messages** in a group:
+### To receive all messages:
 
+**Option 1: Disable Privacy**
 1. Send `/setprivacy` to @BotFather
 2. Select your bot
 3. Choose **Disable**
+4. Remove and re-add bot to groups
 
-**Note:** After changing privacy mode, you must remove and re-add the bot to affected groups for the change to take effect.
-
-Alternatively, grant your bot **admin status** in the group.
-
----
-
-## Adding to StarkBot
-
-### Via Dashboard
-
-1. Navigate to **Channels** in the StarkBot dashboard
-2. Click **Add Channel**
-3. Select **Telegram**
-4. Enter your bot token
-5. Save and start the channel
-
-### Configuration Format
-
-```json
-{
-  "platform": "telegram",
-  "name": "My Telegram Bot",
-  "config": {
-    "bot_token": "123456789:ABCdefGHI..."
-  }
-}
-```
-
-### Environment Variable
-
-You can also set the token via environment variable:
-
-```bash
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI...
-```
+**Option 2: Admin Status**
+- Make the bot an admin in the group
 
 ---
 
-## Testing Your Bot
+## Testing
 
-1. Start the Telegram channel in the dashboard
-2. Open Telegram and find your bot by username
+1. Start the channel in StarkBot dashboard
+2. Find your bot on Telegram by username
 3. Send `/start` or any message
-4. Verify the response appears in both Telegram and the dashboard logs
+4. Verify response appears
+
+Check the dashboard logs if no response.
 
 ---
 
@@ -105,15 +78,15 @@ TELEGRAM_BOT_TOKEN=123456789:ABCdefGHI...
 
 | Issue | Solution |
 |-------|----------|
-| Bot not responding | Check if the channel is running in dashboard |
-| "Unauthorized" error | Verify bot token is correct |
-| Not receiving group messages | Check privacy mode or make bot admin |
-| Token compromised | Revoke via `/revoke` in BotFather |
+| Bot not responding | Check channel is running in dashboard |
+| "Unauthorized" error | Verify token is correct |
+| No group messages | Check privacy mode or make bot admin |
+| Token compromised | Use `/revoke` in BotFather |
 
 ---
 
 ## Resources
 
-- [Telegram Bot API Documentation](https://core.telegram.org/bots/api)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
 - [@BotFather](https://t.me/BotFather)
-- [Bot Privacy Mode](https://core.telegram.org/bots#privacy-mode)
+- [Privacy Mode](https://core.telegram.org/bots#privacy-mode)

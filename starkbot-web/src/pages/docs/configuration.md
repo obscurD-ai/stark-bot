@@ -2,80 +2,100 @@
 name: Configuration
 ---
 
-StarkBot is configured through environment variables and the web dashboard.
+Configure StarkBot through environment variables and the dashboard.
 
 ## Environment Variables
 
-Set these in your `.env` file or container environment.
+Set in `.env` or container environment.
 
 ### Required
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| SECRET_KEY | Authentication secret | `my-secure-secret-key` |
+| Variable | Description |
+|----------|-------------|
+| `LOGIN_ADMIN_PUBLIC_ADDRESS` | Ethereum address for admin login (0x...) |
 
-### Optional
+### Server
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| PORT | 8080 | HTTP server port |
-| GATEWAY_PORT | 8081 | WebSocket gateway port |
-| DATABASE_URL | ./.db/stark.db | SQLite database path |
-| RUST_LOG | info | Log level (debug, info, warn, error) |
+| `PORT` | 8080 | HTTP server port |
+| `GATEWAY_PORT` | 8081 | WebSocket port |
+| `DATABASE_URL` | ./.db/stark.db | SQLite path |
+| `RUST_LOG` | info | Log level |
+
+### Memory Features
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STARK_MEMORY_ENABLE_AUTO_CONSOLIDATION` | false | Auto-merge similar memories |
+| `STARK_MEMORY_ENABLE_CROSS_SESSION` | false | Share memories across channels |
+| `STARK_MEMORY_CROSS_SESSION_LIMIT` | 5 | Max cross-session memories |
+| `STARK_MEMORY_ENABLE_ENTITY_EXTRACTION` | false | Auto-extract named entities |
+
+### Directories
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STARK_WORKSPACE_DIR` | ./workspace | File operations directory |
+| `STARK_SKILLS_DIR` | ./skills | Skills directory |
+
+### Web3 (Optional)
+
+| Variable | Description |
+|----------|-------------|
+| `BURNER_WALLET_BOT_PRIVATE_KEY` | Private key for x402 payments |
 
 ### Example .env
 
 ```bash
-# Authentication
-SECRET_KEY=my-super-secret-key-change-me
+# Authentication (required)
+LOGIN_ADMIN_PUBLIC_ADDRESS=0x1234567890abcdef...
 
-# Server ports
+# Server
 PORT=8080
 GATEWAY_PORT=8081
-
-# Database
 DATABASE_URL=./.db/stark.db
-
-# Logging
 RUST_LOG=info
+
+# Memory
+STARK_MEMORY_ENABLE_AUTO_CONSOLIDATION=true
+STARK_MEMORY_ENABLE_CROSS_SESSION=true
 ```
 
 ---
 
 ## Dashboard Configuration
 
-Most settings are configured through the web dashboard.
-
 ### API Keys
 
-Navigate to **API Keys** to configure external services:
+Configure in **API Keys**:
 
-| Service | Purpose | Required For |
-|---------|---------|--------------|
-| anthropic | Claude AI | Claude models |
-| openai | OpenAI API | GPT models |
-| brave_search | Brave Search API | web_search tool |
-| serpapi | SerpAPI | web_search (alternative) |
-| github | GitHub API | GitHub integrations |
+| Service | Purpose |
+|---------|---------|
+| `anthropic` | Claude models |
+| `openai` | GPT models |
+| `brave_search` | Web search |
+| `serpapi` | Web search (alternative) |
 
 ### Agent Settings
 
-Configure AI behavior in **Agent Settings**:
+Configure in **Agent Settings**:
 
-| Setting | Description | Options |
-|---------|-------------|---------|
-| Provider | AI provider | claude, openai, llama |
-| Model | Specific model | claude-sonnet-4-20250514, gpt-4, etc. |
-| Temperature | Creativity level | 0.0 - 1.0 |
-| Max Tokens | Response length limit | 1024 - 8192 |
+| Setting | Options |
+|---------|---------|
+| Provider | Claude, OpenAI, Llama |
+| Model | claude-sonnet-4-20250514, gpt-4, etc. |
+| Temperature | 0.0 - 1.0 |
+| Max Tokens | 1024 - 8192 |
 
 ---
 
-## Docker Configuration
+## Docker
 
-### docker-compose.yml (Production)
+### Production
 
 ```yaml
+# docker-compose.yml
 version: '3.8'
 services:
   starkbot:
@@ -86,16 +106,16 @@ services:
     volumes:
       - ./data:/app/.db
     environment:
-      - SECRET_KEY=${SECRET_KEY}
+      - LOGIN_ADMIN_PUBLIC_ADDRESS=${LOGIN_ADMIN_PUBLIC_ADDRESS}
       - PORT=8080
       - GATEWAY_PORT=8081
-      - DATABASE_URL=./.db/stark.db
       - RUST_LOG=info
 ```
 
-### docker-compose.dev.yml (Development)
+### Development
 
 ```yaml
+# docker-compose.dev.yml
 version: '3.8'
 services:
   backend:
@@ -109,9 +129,6 @@ services:
       - ./stark-backend:/app/stark-backend
       - ./data:/app/.db
     environment:
-      - SECRET_KEY=dev-secret
-      - PORT=8082
-      - GATEWAY_PORT=8081
       - RUST_LOG=debug
 
   frontend:
@@ -120,138 +137,61 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "8080:8080"
-    volumes:
-      - ./stark-frontend:/app
     depends_on:
       - backend
 ```
 
 ---
 
-## Security Configuration
-
-### SECRET_KEY
-
-The SECRET_KEY is critical for security:
-
-- Used for session token generation
-- Required for dashboard login
-- Should be a strong, unique value
-
-**Generate a secure key:**
-
-```bash
-openssl rand -base64 32
-```
-
-### API Key Storage
-
-API keys are encrypted before storage in SQLite:
-
-- Never stored in plain text
-- Decrypted only when needed
-- Not exposed in API responses
-
-### CORS
-
-CORS is configured to allow requests from:
-- Same origin
-- Configured frontend URLs
-
----
-
-## Logging
-
-### Log Levels
-
-Set with `RUST_LOG` environment variable:
-
-| Level | Description |
-|-------|-------------|
-| error | Only errors |
-| warn | Warnings and errors |
-| info | General information (recommended) |
-| debug | Detailed debugging |
-| trace | Very verbose |
-
-### Structured Logging
-
-Logs include:
-- Timestamp
-- Level
-- Module path
-- Message
-
-Example:
-```
-2024-01-15T10:30:00Z INFO stark_backend::dispatcher - Processing message from telegram
-2024-01-15T10:30:01Z DEBUG stark_backend::ai::claude - Sending request to Claude API
-```
-
----
-
 ## Database
-
-### SQLite Configuration
-
-StarkBot uses SQLite for data persistence:
-
-```
-DATABASE_URL=./.db/stark.db
-```
 
 ### Tables
 
 | Table | Purpose |
 |-------|---------|
-| auth_sessions | User authentication |
-| api_keys | Encrypted service credentials |
-| channels | Platform configurations |
-| agent_settings | AI model settings |
-| chat_sessions | Conversation history |
-| cron_jobs | Scheduled tasks |
-| heartbeat_config | Interval triggers |
-| memories | Long-term storage |
-| identities | User mappings |
-| skills | Custom skills |
+| `auth_sessions` | Login tokens |
+| `identity_links` | Cross-platform users |
+| `chat_sessions` | Conversations |
+| `session_messages` | Message history |
+| `memories` | Long-term storage |
+| `external_channels` | Platform configs |
+| `external_api_keys` | Encrypted API keys |
+| `agent_settings` | AI configuration |
+| `skills` | Custom skills |
+| `cron_jobs` | Scheduled tasks |
 
 ### Backup
-
-SQLite database is a single file. Back up by copying:
 
 ```bash
 cp .db/stark.db .db/stark.db.backup
 ```
 
-### Volume Mounting
+---
 
-In Docker, mount the database directory:
+## Logging
 
-```yaml
-volumes:
-  - ./data:/app/.db
+### Levels
+
+| Level | Use |
+|-------|-----|
+| `error` | Errors only |
+| `warn` | + Warnings |
+| `info` | + General info (recommended) |
+| `debug` | + Detailed debugging |
+| `trace` | Very verbose |
+
+### Format
+
+```
+2024-01-15T10:30:00Z INFO stark_backend::dispatcher - Processing message from telegram
+2024-01-15T10:30:01Z DEBUG stark_backend::ai::claude - Sending to Claude API
 ```
 
 ---
 
-## Network Configuration
+## Reverse Proxy
 
-### Ports
-
-| Port | Service | Protocol |
-|------|---------|----------|
-| 8080 | HTTP Server | TCP |
-| 8081 | WebSocket Gateway | TCP |
-
-### Firewall Rules
-
-For production, ensure:
-- Port 8080 accessible for web traffic
-- Port 8081 accessible for WebSocket
-
-### Reverse Proxy (Optional)
-
-Example nginx configuration:
+### Nginx
 
 ```nginx
 server {
@@ -262,6 +202,7 @@ server {
         proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
     }
 
     location /ws {
@@ -277,24 +218,10 @@ server {
 
 ## Troubleshooting
 
-### Common Issues
-
-**Can't connect to dashboard:**
-- Check PORT environment variable
-- Verify firewall allows port 8080
-- Check container logs
-
-**WebSocket not connecting:**
-- Verify GATEWAY_PORT is correct
-- Check browser console for errors
-- Ensure WebSocket port is accessible
-
-**API key not working:**
-- Verify key is correct
-- Check service-specific requirements
-- Review logs for API errors
-
-**Database errors:**
-- Ensure DATABASE_URL path is writable
-- Check disk space
-- Verify volume mounting in Docker
+| Issue | Solution |
+|-------|----------|
+| Can't connect to dashboard | Check PORT, firewall |
+| WebSocket not connecting | Check GATEWAY_PORT, browser console |
+| Wallet won't connect | Verify LOGIN_ADMIN_PUBLIC_ADDRESS matches |
+| API key not working | Check key is correct, review logs |
+| Database errors | Ensure DATABASE_URL path is writable |

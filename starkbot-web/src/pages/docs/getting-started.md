@@ -2,56 +2,105 @@
 name: Getting Started
 ---
 
-This guide walks you through setting up and running StarkBot.
+Get StarkBot running with Docker in under 5 minutes.
 
 ## Prerequisites
 
 - Docker and Docker Compose
-- Node.js 18+ (for local frontend development)
-- Rust toolchain (for local backend development)
+- An Ethereum wallet (MetaMask or similar)
+- Node.js 18+ *(optional, for local development)*
+- Rust toolchain *(optional, for local development)*
 
-## Quick Start with Docker
+## Quick Start
 
-### 1. Clone the Repository
+### 1. Clone and Configure
 
 ```bash
 git clone https://github.com/ethereumdegen/starkbot-monorepo.git
 cd starkbot-monorepo
 ```
 
-### 2. Configure Environment
-
-Create a `.env` file in the project root:
+Create `.env` in the project root:
 
 ```bash
+# Your wallet address for admin login
 LOGIN_ADMIN_PUBLIC_ADDRESS=0xYourEthereumAddress
+
+# Server ports
 PORT=8080
 GATEWAY_PORT=8081
+
+# Database
 DATABASE_URL=./.db/stark.db
+
+# Logging
 RUST_LOG=info
 ```
 
-> **Important:** Set `LOGIN_ADMIN_PUBLIC_ADDRESS` to your Ethereum wallet address for SIWE (Sign In With Ethereum) authentication.
+> **Important:** Only the wallet address in `LOGIN_ADMIN_PUBLIC_ADDRESS` can access the dashboard.
 
-### 3. Run with Docker Compose
+### 2. Run with Docker
 
-**Production:**
 ```bash
 docker-compose up --build
 ```
 
-**Development (with hot-reload):**
+For development with hot-reload:
+
 ```bash
 docker-compose -f docker-compose.dev.yml up --build
 ```
 
-### 4. Access the Dashboard
+### 3. Sign In
 
-Open `http://localhost:8080` in your browser. Connect your Ethereum wallet to sign in.
+1. Open `http://localhost:8080`
+2. Click **Connect Wallet**
+3. Sign the challenge message in MetaMask
+4. You're in
 
 ---
 
-## Local Development Setup
+## First-Time Setup
+
+### Add API Keys
+
+Go to **API Keys** and configure:
+
+| Service | Purpose |
+|---------|---------|
+| Anthropic | Claude models |
+| OpenAI | GPT models |
+| Brave Search | Web search tool |
+
+### Configure the Agent
+
+In **Agent Settings**, select:
+
+- **Provider** — Claude, OpenAI, or Llama
+- **Model** — claude-sonnet-4-20250514, gpt-4, etc.
+- **Temperature** — 0.0 (precise) to 1.0 (creative)
+
+### Connect a Channel *(Optional)*
+
+In **Channels**, add messaging platforms:
+
+| Platform | What You Need |
+|----------|--------------|
+| Telegram | Bot token from @BotFather |
+| Slack | Bot token + App token |
+| Discord | Bot token from Developer Portal |
+
+### Test It
+
+Go to **Agent Chat** and send a message:
+
+> "Search the web for the latest Rust news and summarize it"
+
+Watch the tool execution progress in real-time.
+
+---
+
+## Local Development
 
 ### Backend
 
@@ -60,7 +109,7 @@ cd stark-backend
 cargo run
 ```
 
-The backend runs on port 8080 (HTTP) and 8081 (WebSocket).
+Runs on port 8080 (HTTP) and 8081 (WebSocket).
 
 ### Frontend
 
@@ -70,69 +119,35 @@ npm install
 npm run dev
 ```
 
-The frontend dev server runs with proxy configuration to the backend.
+Vite dev server with hot-reload and API proxy.
 
 ---
 
-## Initial Configuration
-
-After logging in, configure StarkBot:
-
-### 1. Add API Keys
-
-Navigate to **API Keys** and add credentials for:
-
-- **Anthropic** - For Claude AI models
-- **OpenAI** - For GPT models
-- **Brave Search** or **SerpAPI** - For web search tool
-
-### 2. Configure Agent Settings
-
-Go to **Agent Settings** to select:
-
-- AI Provider (Claude, OpenAI, Llama)
-- Model (claude-sonnet-4-20250514, gpt-4, etc.)
-- Temperature and other parameters
-
-### 3. Connect Channels (Optional)
-
-In **Channels**, add your messaging platforms:
-
-- **Telegram**: Bot token from @BotFather
-- **Slack**: Bot token and app token
-- **Discord**: Bot token from Developer Portal
-
-### 4. Test the Agent
-
-Visit **Agent Chat** and send a message to verify everything works.
-
----
-
-## Directory Structure
+## Project Structure
 
 ```
 starkbot-monorepo/
-├── stark-backend/          # Rust backend
+├── stark-backend/           # Rust backend
 │   └── src/
-│       ├── main.rs         # Entry point
-│       ├── controllers/    # API handlers
-│       ├── channels/       # Platform integrations
-│       ├── ai/             # AI provider clients
-│       └── tools/          # Built-in tools
-├── stark-frontend/         # React frontend
+│       ├── main.rs          # Entry point
+│       ├── channels/        # Telegram, Slack, Discord
+│       ├── ai/              # AI provider clients
+│       ├── tools/           # 40+ built-in tools
+│       └── db/              # SQLite persistence
+├── stark-frontend/          # React dashboard
 │   └── src/
-│       ├── pages/          # Page components
-│       ├── components/     # UI components
-│       └── lib/            # Utilities
-├── .env                    # Environment config
-├── docker-compose.yml      # Production setup
-└── docker-compose.dev.yml  # Development setup
+│       ├── pages/           # Route components
+│       ├── components/      # UI components
+│       └── lib/             # API client, gateway
+├── starkbot-web/            # Marketing site & docs
+├── docker-compose.yml       # Production
+└── docker-compose.dev.yml   # Development
 ```
 
 ---
 
 ## Next Steps
 
-- [Architecture](/docs/architecture) - Understand how StarkBot works
-- [Tools](/docs/tools) - Learn about available tools
-- [Skills](/docs/skills) - Create custom skills
+- [Architecture](/docs/architecture) — Understand the system
+- [Tools](/docs/tools) — See what the agent can do
+- [Telegram](/docs/telegram) — Set up your first bot

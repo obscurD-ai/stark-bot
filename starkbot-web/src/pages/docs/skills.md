@@ -2,20 +2,17 @@
 name: Skills
 ---
 
-Skills extend StarkBot with custom capabilities. They're defined in Markdown format and can include prompts, instructions, and tool access.
+Skills are reusable modules that extend the agent with specialized behaviors, instructions, and tool access.
 
-## What Are Skills?
+## What's a Skill?
 
-Skills are reusable modules that:
+A markdown file with YAML frontmatter that defines:
 
-- Define specialized behaviors for the agent
-- Can be triggered by name or context
-- Provide domain-specific knowledge
-- Can access specific tools
+- **Behavior** — Instructions the agent follows
+- **Arguments** — Parameters the skill accepts
+- **Tools** — Which tools the skill can use
 
-## Skill Format
-
-Skills are defined in Markdown with YAML frontmatter:
+## Basic Format
 
 ```markdown
 ---
@@ -32,58 +29,54 @@ tools:
 
 # Weather Skill
 
-When asked about weather, follow these steps:
+When asked about weather:
 
-1. Use web_search to find current weather for the location
-2. Use web_fetch to get detailed forecast if needed
-3. Summarize the weather conditions clearly
-
-Include:
-- Current temperature
-- Conditions (sunny, cloudy, rain, etc.)
-- High/low for the day
-- Notable alerts or warnings
+1. Search for current conditions at the location
+2. Fetch detailed forecast if requested
+3. Summarize clearly with temperature, conditions, and alerts
 ```
 
-## Frontmatter Fields
+---
+
+## Frontmatter Reference
 
 | Field | Type | Description |
 |-------|------|-------------|
-| name | string | Unique skill identifier |
-| description | string | What the skill does |
-| arguments | array | Parameters the skill accepts |
-| tools | array | Tools the skill can use |
+| `name` | string | Unique identifier (lowercase, hyphens) |
+| `description` | string | When to use this skill |
+| `arguments` | array | Parameters the skill accepts |
+| `tools` | array | Tools the skill can access |
+| `version` | string | Skill version (optional) |
+| `tags` | array | Categorization tags (optional) |
 
 ### Arguments
-
-Each argument can have:
 
 ```yaml
 arguments:
   - name: location
-    description: The target location
+    description: Target city or region
     required: true
-    default: "New York"
+  - name: units
+    description: Temperature units
+    required: false
+    default: celsius
 ```
 
 ---
 
 ## Creating Skills
 
-### Method 1: Upload via Dashboard
+### Method 1: Single File
 
-1. Navigate to **Skills** page
-2. Click **Upload Skill**
-3. Select a `.md` file or `.zip` archive
-4. Skill is immediately available
+Upload a `.md` file through **Skills** in the dashboard.
 
 ### Method 2: ZIP Archive
 
-For complex skills with multiple files:
+For skills with multiple files:
 
 ```
 my-skill.zip
-├── skill.md          # Main skill definition
+├── skill.md          # Main definition (required)
 ├── templates/        # Optional templates
 │   └── report.md
 └── data/             # Optional data files
@@ -92,75 +85,44 @@ my-skill.zip
 
 ---
 
-## Example Skills
+## Examples
 
 ### GitHub PR Skill
 
 ```markdown
 ---
 name: github-pr
-description: Create and manage GitHub pull requests
+description: Create and review GitHub pull requests
 arguments:
   - name: action
-    description: Action to perform (create, review, merge)
+    description: create, review, or merge
     required: true
   - name: repo
-    description: Repository name (owner/repo)
+    description: Repository (owner/repo)
     required: true
 tools:
   - exec
   - read_file
-  - write_file
 ---
 
 # GitHub PR Skill
 
 ## Create PR
-1. Check current branch with `git branch`
-2. Ensure changes are committed
-3. Push branch and create PR using gh CLI
+1. Check current branch: `git branch --show-current`
+2. Verify changes are committed
+3. Push and create PR: `gh pr create`
 
 ## Review PR
-1. Fetch PR details with `gh pr view`
+1. Get PR details: `gh pr view`
 2. Review changed files
-3. Provide summary of changes
+3. Summarize what changed and why
 
 ## Merge PR
-1. Verify CI checks pass
-2. Merge using `gh pr merge`
+1. Check CI status: `gh pr checks`
+2. Merge: `gh pr merge --squash`
 ```
 
----
-
-### Daily Summary Skill
-
-```markdown
----
-name: daily-summary
-description: Generate daily activity summary
-arguments:
-  - name: date
-    description: Date to summarize (defaults to today)
-    required: false
-tools:
-  - read_file
-  - agent_send
----
-
-# Daily Summary Skill
-
-Generate a summary of the day's activities:
-
-1. Read activity logs from the database
-2. Categorize by type (messages, tool uses, cron jobs)
-3. Calculate key metrics
-4. Format as a readable summary
-5. Optionally send to configured channel
-```
-
----
-
-### Web Research Skill
+### Research Skill
 
 ```markdown
 ---
@@ -168,32 +130,52 @@ name: research
 description: Conduct web research on a topic
 arguments:
   - name: topic
-    description: Topic to research
     required: true
   - name: depth
-    description: Research depth (quick, standard, thorough)
+    description: quick, standard, or thorough
     default: standard
 tools:
   - web_search
   - web_fetch
 ---
 
-# Web Research Skill
+# Research Skill
 
-## Quick Research
-- Single search query
-- Top 3 results summarized
+## Quick
+- Single search, top 3 results summarized
 
-## Standard Research
-- Multiple search queries
-- Fetch and analyze top results
+## Standard
+- Multiple queries from different angles
 - Cross-reference information
+- Cite sources
 
-## Thorough Research
+## Thorough
 - Comprehensive search coverage
 - Deep dive into authoritative sources
-- Fact verification across sources
-- Structured report output
+- Fact verification
+- Structured report with citations
+```
+
+### Daily Summary Skill
+
+```markdown
+---
+name: daily-summary
+description: Generate daily activity summary
+tools:
+  - agent_send
+---
+
+# Daily Summary Skill
+
+Generate a summary covering:
+
+1. Messages processed today
+2. Tools used and outcomes
+3. Scheduled jobs that ran
+4. Notable events or errors
+
+Format as bullet points. If a channel is specified, send the summary there.
 ```
 
 ---
@@ -202,56 +184,52 @@ tools:
 
 ### In Chat
 
-Simply ask the agent to use the skill:
+Ask naturally:
 
-> "Use the weather skill to get the forecast for Tokyo"
+> "Use the research skill to find information about WebAssembly"
 
-Or the agent may automatically invoke a skill based on context.
+Or be explicit:
 
-### Via Slash Command
+> "Run the github-pr skill with action=review and repo=myorg/myrepo"
 
-In the Agent Chat, type:
+### In Cron Jobs
+
+```json
+{
+  "name": "Morning Briefing",
+  "schedule": "0 8 * * *",
+  "message": "Use the daily-summary skill and send to Discord"
+}
+```
+
+### Slash Command
+
+In Agent Chat:
 
 ```
 /skills
 ```
 
-To see available skills and their descriptions.
-
-### In Cron Jobs
-
-Reference skills in scheduled tasks:
-
-```json
-{
-  "name": "Morning Briefing",
-  "cron_expression": "0 8 * * *",
-  "message": "Use the daily-summary skill and send to Discord"
-}
-```
+Lists all available skills.
 
 ---
 
 ## Managing Skills
 
-### View Skills
-
-Navigate to **Skills** in the dashboard to see all installed skills.
-
-### Delete Skills
-
-Click the delete button next to any skill to remove it.
-
-### Update Skills
-
-Upload a new version with the same name to replace an existing skill.
+| Action | How |
+|--------|-----|
+| **View** | Go to Skills page |
+| **Upload** | Click Upload, select .md or .zip |
+| **Enable/Disable** | Toggle switch |
+| **Update** | Upload with same name |
+| **Delete** | Click delete button |
 
 ---
 
 ## Best Practices
 
-1. **Clear Names** - Use descriptive, lowercase names with hyphens
-2. **Detailed Descriptions** - Help the AI understand when to use the skill
-3. **Minimal Tools** - Only request tools the skill actually needs
-4. **Step-by-Step Instructions** - Guide the AI through the process
-5. **Error Handling** - Include instructions for common failure cases
+1. **Clear names** — `github-pr` not `pr-skill-v2`
+2. **Detailed descriptions** — Help the AI know when to use it
+3. **Minimal tools** — Only request what's needed
+4. **Step-by-step** — Guide the AI through the process
+5. **Handle failures** — Include instructions for errors

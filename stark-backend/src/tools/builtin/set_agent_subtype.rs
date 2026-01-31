@@ -12,6 +12,9 @@ use std::collections::HashMap;
 /// Tool to switch between agent subtypes (Finance, CodeEngineer, Secretary)
 /// This controls which tools and skills are available to the agent.
 /// Think of subtypes as "toolboxes" - each one unlocks different capabilities.
+///
+/// IMPORTANT: This tool MUST be called FIRST before any other tools can be used.
+/// The agent starts with no subtype selected and must choose based on the user's request.
 pub struct SetAgentSubtypeTool {
     definition: ToolDefinition,
 }
@@ -23,7 +26,7 @@ impl SetAgentSubtypeTool {
             "subtype".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "The agent subtype/toolbox to switch to:\n\
+                description: "The agent subtype/toolbox to activate:\n\
                     • 'finance' - DeFi/crypto operations (swaps, transfers, web3)\n\
                     • 'code_engineer' - Software development (code editing, git, testing)\n\
                     • 'secretary' - Social media, messaging, scheduling, marketing".to_string(),
@@ -40,11 +43,12 @@ impl SetAgentSubtypeTool {
         SetAgentSubtypeTool {
             definition: ToolDefinition {
                 name: "set_agent_subtype".to_string(),
-                description: "Switch the agent's toolbox/specialization. Each subtype unlocks different tools and skills:\n\
-                    • 'finance' - Crypto swaps, transfers, token lookups, DeFi operations\n\
-                    • 'code_engineer' - Code editing, git, grep/glob search, testing, debugging\n\
-                    • 'secretary' - Social media posting, messaging, scheduling, marketing\n\
-                    Core tools (read_file, list_files, web_fetch) are always available.".to_string(),
+                description: "⚡ REQUIRED FIRST TOOL: Select your toolbox before doing anything else!\n\n\
+                    You MUST call this tool FIRST based on what the user wants:\n\
+                    • 'finance' - For crypto/DeFi: swaps, transfers, balances, token lookups\n\
+                    • 'code_engineer' - For coding: edit files, git, grep/glob, run commands\n\
+                    • 'secretary' - For social: Twitter, messaging, scheduling, marketing\n\n\
+                    Choose based on the user's request, then proceed with the appropriate tools.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
@@ -58,6 +62,9 @@ impl SetAgentSubtypeTool {
     /// Get a description of available tools for a subtype
     fn describe_subtype(subtype: AgentSubtype) -> String {
         match subtype {
+            AgentSubtype::None => {
+                "❓ No toolbox selected. Call set_agent_subtype first!".to_string()
+            }
             AgentSubtype::Finance => {
                 "💰 Finance toolbox activated.\n\n\
                  Tools now available:\n\

@@ -2,29 +2,15 @@
 name: Tools
 ---
 
-Tools extend StarkBot's capabilities beyond conversation. The AI can decide to use tools during message processing to perform actions and gather information.
+Tools let the AI agent take actions beyond conversation. StarkBot includes 40+ built-in tools across six categories.
 
 ## How Tools Work
 
-1. User sends a message
-2. AI analyzes the request
-3. If a tool is needed, AI generates a tool call
-4. Tool executes with provided parameters
-5. Results are fed back to AI
-6. AI continues or generates final response
-7. Up to 10 tool iterations per message
+```
+User Message → AI Analyzes → Tool Call → Execute → Result → AI Continues
+```
 
-## Tool Groups
-
-Tools are organized into groups for access control:
-
-| Group | Description |
-|-------|-------------|
-| Web | Internet access for search and fetching |
-| Filesystem | File operations (read, write, list) |
-| Exec | Shell command execution |
-| Messaging | Send messages to channels |
-| System | Agent management |
+The AI can chain up to 10 tool calls per message to complete complex tasks.
 
 ---
 
@@ -32,44 +18,29 @@ Tools are organized into groups for access control:
 
 ### web_search
 
-Search the web for information.
+Search the web using Brave Search or SerpAPI.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| query | string | Search query |
-
-**Example:**
 ```json
 {
   "name": "web_search",
   "parameters": {
-    "query": "latest React 19 features"
+    "query": "Rust async runtime comparison 2024"
   }
 }
 ```
 
-**Requires:** Brave Search or SerpAPI key configured.
-
----
+Requires: Brave Search or SerpAPI key in API Keys.
 
 ### web_fetch
 
-Fetch content from a URL.
+Fetch and parse content from a URL.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| url | string | URL to fetch |
-| selector | string | (Optional) CSS selector to extract |
-
-**Example:**
 ```json
 {
   "name": "web_fetch",
   "parameters": {
     "url": "https://example.com/api/data",
-    "selector": ".content"
+    "selector": ".main-content"
   }
 }
 ```
@@ -80,129 +51,102 @@ Fetch content from a URL.
 
 ### read_file
 
-Read contents of a file.
+Read file contents.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| path | string | File path to read |
-
-**Example:**
 ```json
-{
-  "name": "read_file",
-  "parameters": {
-    "path": "/app/config.json"
-  }
-}
+{ "name": "read_file", "parameters": { "path": "./src/main.rs" } }
 ```
-
----
 
 ### write_file
 
-Write content to a file.
+Create or overwrite a file.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| path | string | File path to write |
-| content | string | Content to write |
-
-**Example:**
 ```json
 {
   "name": "write_file",
   "parameters": {
-    "path": "/app/output.txt",
+    "path": "./output.txt",
     "content": "Hello, World!"
   }
 }
 ```
 
----
-
 ### list_files
 
-List files in a directory.
+List directory contents.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| path | string | Directory path |
-| recursive | boolean | (Optional) List recursively |
+```json
+{ "name": "list_files", "parameters": { "path": "./src", "recursive": true } }
+```
 
-**Example:**
+### glob
+
+Find files matching a pattern.
+
+```json
+{ "name": "glob", "parameters": { "pattern": "**/*.rs" } }
+```
+
+### grep
+
+Search file contents.
+
+```json
+{ "name": "grep", "parameters": { "pattern": "TODO", "path": "./src" } }
+```
+
+### apply_patch
+
+Apply a unified diff patch to a file.
+
 ```json
 {
-  "name": "list_files",
+  "name": "apply_patch",
   "parameters": {
-    "path": "/app/src",
-    "recursive": true
+    "path": "./src/lib.rs",
+    "patch": "@@ -1,3 +1,4 @@\n+// New comment\n fn main() {"
   }
 }
 ```
 
 ---
 
-### apply_patch
-
-Apply a patch to modify a file.
-
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| path | string | File to patch |
-| patch | string | Unified diff format patch |
-
-Useful for making targeted edits without rewriting entire files.
-
----
-
-## Exec Tool
+## Exec Tools
 
 ### exec
 
 Execute shell commands.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| command | string | Command to execute |
-| cwd | string | (Optional) Working directory |
-| timeout | number | (Optional) Timeout in ms |
-
-**Example:**
 ```json
 {
   "name": "exec",
   "parameters": {
-    "command": "git status",
-    "cwd": "/app"
+    "command": "cargo build --release",
+    "cwd": "./project",
+    "timeout": 60000
   }
 }
 ```
 
-**Security:**
-- Dangerous commands are blocked (`rm -rf /`, `format`, etc.)
-- Shell metacharacters restricted
-- Execution timeout enforced
+**Safety:** Dangerous commands are blocked. Shell metacharacters are restricted.
+
+### git
+
+Git operations with built-in safety.
+
+```json
+{ "name": "git", "parameters": { "command": "status" } }
+{ "name": "git", "parameters": { "command": "diff HEAD~1" } }
+```
 
 ---
 
-## Messaging Tool
+## Messaging Tools
 
 ### agent_send
 
-Send a message to a configured channel.
+Send a message to any configured channel.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| channel_id | string | Target channel ID |
-| message | string | Message to send |
-
-**Example:**
 ```json
 {
   "name": "agent_send",
@@ -213,7 +157,68 @@ Send a message to a configured channel.
 }
 ```
 
-Useful for notifications and cross-platform messaging.
+### say_to_user
+
+Reply in the current conversation.
+
+```json
+{ "name": "say_to_user", "parameters": { "message": "Working on it..." } }
+```
+
+### ask_user
+
+Request user confirmation before proceeding.
+
+```json
+{
+  "name": "ask_user",
+  "parameters": {
+    "question": "Deploy to production?",
+    "options": ["Yes", "No"]
+  }
+}
+```
+
+---
+
+## Web3 Tools
+
+### web3_tx
+
+Send a blockchain transaction.
+
+```json
+{
+  "name": "web3_tx",
+  "parameters": {
+    "to": "0x1234...",
+    "value": "0.1",
+    "data": "0x..."
+  }
+}
+```
+
+### token_lookup
+
+Get token information.
+
+```json
+{ "name": "token_lookup", "parameters": { "address": "0x1234...", "chain": "base" } }
+```
+
+### x402_fetch
+
+Fetch from a pay-per-use API with automatic USDC payment.
+
+```json
+{
+  "name": "x402_fetch",
+  "parameters": {
+    "url": "https://api.example.com/premium",
+    "method": "GET"
+  }
+}
+```
 
 ---
 
@@ -221,15 +226,8 @@ Useful for notifications and cross-platform messaging.
 
 ### subagent
 
-Spawn a child agent for parallel tasks.
+Spawn a background agent for parallel tasks.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| task | string | Task description |
-| tools | array | (Optional) Tool subset |
-
-**Example:**
 ```json
 {
   "name": "subagent",
@@ -240,44 +238,64 @@ Spawn a child agent for parallel tasks.
 }
 ```
 
----
+### memory_store
 
-### subagent_status
-
-Check status of a spawned subagent.
-
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| agent_id | string | Subagent ID |
-
----
-
-## Tool Execution Events
-
-The WebSocket gateway broadcasts tool events:
+Explicitly store a memory.
 
 ```json
-// Tool started
 {
-  "type": "tool_execution",
-  "tool": "web_search",
-  "parameters": { "query": "..." }
-}
-
-// Tool completed
-{
-  "type": "tool_result",
-  "tool": "web_search",
-  "success": true,
-  "result": "..."
+  "name": "memory_store",
+  "parameters": {
+    "content": "User prefers TypeScript over JavaScript",
+    "memory_type": "preference"
+  }
 }
 ```
 
-The dashboard displays these in real-time during agent processing.
+### modify_soul
+
+Update the agent's personality or instructions.
+
+```json
+{
+  "name": "modify_soul",
+  "parameters": {
+    "instruction": "Always respond in bullet points"
+  }
+}
+```
 
 ---
 
-## Adding Custom Tools
+## Tool Groups
 
-Custom tools can be added through the skill system. See [Skills](/docs/skills) for details on creating tools with custom functionality.
+Tools are organized into access levels:
+
+| Profile | Tools Included |
+|---------|----------------|
+| **Minimal** | web_search, web_fetch |
+| **Standard** | + Filesystem tools |
+| **Messaging** | + agent_send, say_to_user |
+| **Full** | All tools including exec, web3 |
+
+---
+
+## Real-Time Events
+
+Tool execution broadcasts WebSocket events:
+
+```json
+// Started
+{ "type": "agent.tool_call", "tool": "web_search", "parameters": { "query": "..." } }
+
+// Completed
+{ "type": "tool.result", "tool": "web_search", "success": true, "result": "..." }
+```
+
+The dashboard shows these in real-time as the agent works.
+
+---
+
+## Custom Tools
+
+Extend capabilities through the [Skills](/docs/skills) system. Skills can combine multiple tools into reusable workflows.

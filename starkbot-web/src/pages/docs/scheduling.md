@@ -2,101 +2,106 @@
 name: Scheduling
 ---
 
-StarkBot supports automated task execution through cron jobs and heartbeat triggers.
+Automate tasks with cron jobs and heartbeat triggers.
 
 ## Overview
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| Cron Jobs | CRON expression scheduling | Specific times/dates |
-| Heartbeat | Interval-based triggers | Regular check-ins |
+| Type | When to Use |
+|------|-------------|
+| **Cron Jobs** | Specific times (9 AM daily, Mondays) |
+| **Heartbeat** | Regular intervals (every hour) |
 
 ---
 
 ## Cron Jobs
 
-Cron jobs execute prompts at specified times using standard CRON expressions.
+Run prompts on a schedule using standard cron expressions.
 
-### Creating a Cron Job
+### Creating a Job
 
-1. Navigate to **Scheduling** in dashboard
-2. Click **Add Cron Job**
-3. Fill in:
-   - **Name** - Descriptive name
-   - **CRON Expression** - When to run
-   - **Message** - Prompt to send to agent
+1. Go to **Scheduling**
+2. Click **Add Job**
+3. Enter name, schedule, and message
+4. Save
 
-### CRON Expression Format
+### Cron Syntax
 
 ```
 ┌───────────── minute (0-59)
 │ ┌───────────── hour (0-23)
 │ │ ┌───────────── day of month (1-31)
 │ │ │ ┌───────────── month (1-12)
-│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
+│ │ │ │ ┌───────────── day of week (0-6, Sun=0)
 │ │ │ │ │
 * * * * *
 ```
 
 ### Common Patterns
 
-| Expression | Description |
-|------------|-------------|
-| `0 9 * * *` | Every day at 9:00 AM |
-| `0 9 * * MON` | Every Monday at 9:00 AM |
+| Expression | When |
+|------------|------|
+| `0 9 * * *` | Daily at 9:00 AM |
+| `0 9 * * MON` | Mondays at 9:00 AM |
 | `0 */4 * * *` | Every 4 hours |
 | `30 8 * * MON-FRI` | Weekdays at 8:30 AM |
-| `0 0 1 * *` | First day of month at midnight |
+| `0 0 1 * *` | First of month, midnight |
 | `*/15 * * * *` | Every 15 minutes |
 
 ### Example Jobs
 
-#### Daily Summary
+**Daily Summary**
 ```
-Name: Daily Summary
-CRON: 0 18 * * *
-Message: Generate a summary of today's activities and notable events
-```
-
-#### Weekly Report
-```
-Name: Weekly Report
-CRON: 0 9 * * MON
-Message: Create a weekly report of all completed tasks and send to Discord
+Schedule: 0 18 * * *
+Message: Summarize today's activities and notable events
 ```
 
-#### Hourly Check
+**Weekly Report**
 ```
-Name: System Health Check
-CRON: 0 * * * *
-Message: Check system health and alert if any issues detected
+Schedule: 0 9 * * MON
+Message: Generate a weekly report and send to Discord
 ```
 
-### Job Management
+**Hourly Check**
+```
+Schedule: 0 * * * *
+Message: Check system health and alert on issues
+```
+
+---
+
+## Job Management
 
 | Action | Description |
 |--------|-------------|
-| Run Now | Execute immediately |
-| Pause | Temporarily disable |
-| Resume | Re-enable paused job |
-| Delete | Remove permanently |
+| **Run Now** | Execute immediately |
+| **Pause** | Temporarily disable |
+| **Resume** | Re-enable paused job |
+| **Delete** | Remove permanently |
 
 ### Execution History
 
-View past runs for each job:
-- Execution time
-- Success/failure status
+Each job tracks:
+- Run timestamp
+- Success/failure
 - Response summary
 
 ---
 
 ## Heartbeat
 
-Heartbeat provides simpler interval-based scheduling without CRON syntax.
+Simpler interval-based scheduling without cron syntax.
 
 ### Configuration
 
-Navigate to **Scheduling** > **Heartbeat** tab.
+```json
+{
+  "enabled": true,
+  "interval": "daily",
+  "time": "09:00",
+  "message": "Good morning! Here's your briefing.",
+  "channel_id": "discord-uuid"
+}
+```
 
 ### Intervals
 
@@ -107,122 +112,80 @@ Navigate to **Scheduling** > **Heartbeat** tab.
 | Weekly | Once per week on specified day |
 | Custom | Custom interval in minutes |
 
-### Example Configuration
+---
 
-```json
-{
-  "enabled": true,
-  "interval": "daily",
-  "time": "09:00",
-  "message": "Good morning! Here's your daily briefing.",
-  "channel_id": "discord-channel-uuid"
-}
+## How It Works
+
+The scheduler service:
+
+1. Checks for due jobs every 10 seconds
+2. Creates a message from the job prompt
+3. Processes through the dispatcher (same as chat)
+4. Records execution result
+5. Calculates next run time
+
 ```
-
-### Use Cases
-
-- **Morning briefings** - Daily summary at start of day
-- **Health checks** - Periodic system monitoring
-- **Reminders** - Regular notifications
-- **Data sync** - Periodic data updates
+Scheduler (every 10s)
+       ↓
+Find due jobs
+       ↓
+For each job:
+  → Create NormalizedMessage
+  → Dispatcher processes
+  → AI + tools execute
+  → Log result
+  → Update next_run
+```
 
 ---
 
-## How Scheduling Works
+## With Skills
 
-### Scheduler Service
+Combine scheduling with skills:
 
-The backend runs a scheduler service that:
-
-1. Checks for due jobs every 10 seconds
-2. Executes due jobs via the message dispatcher
-3. Records execution results
-4. Calculates next run time
-
-### Execution Flow
-
+**Weather Alert**
 ```
-Scheduler Check (every 10s)
-       ↓
-Find Due Jobs
-       ↓
-For Each Job:
-  ├─→ Broadcast "job_started" event
-  ├─→ Create NormalizedMessage
-  ├─→ Dispatcher.dispatch()
-  ├─→ AI processes message
-  ├─→ Record execution result
-  └─→ Update next_run_time
+Schedule: 0 7 * * *
+Message: Use the weather skill for Seattle. If rain expected,
+         send umbrella reminder to Telegram.
 ```
 
-### Job Status
-
-| Status | Description |
-|--------|-------------|
-| Active | Scheduled and will run |
-| Paused | Temporarily disabled |
-| Running | Currently executing |
+**PR Review Reminder**
+```
+Schedule: 0 10 * * MON-FRI
+Message: Use github-pr skill to list PRs older than 2 days.
+         Send summary to Slack if any need attention.
+```
 
 ---
 
 ## Best Practices
 
-### 1. Clear Job Names
-Use descriptive names that indicate purpose:
+### Clear Names
 - "Daily Sales Report" not "Job 1"
-- "Monday Team Standup" not "Weekly"
+- "Monday Standup" not "Weekly"
 
-### 2. Appropriate Intervals
-- Don't schedule too frequently (resource usage)
-- Consider timezone implications
+### Appropriate Intervals
+- Don't schedule too frequently
+- Consider timezone (jobs run in UTC)
 - Avoid overlapping jobs
 
-### 3. Idempotent Messages
+### Idempotent Messages
 Design prompts that handle repeated execution:
-- "Generate today's report" (good)
-- "Append to report" (may cause issues)
+- "Generate today's report" ✓
+- "Append to report" ✗
 
-### 4. Error Handling
-Include instructions for handling failures:
+### Error Handling
+Include failure instructions:
 ```
-Generate the daily report. If data is unavailable,
-notify the team via Discord with the error details.
-```
-
-### 5. Monitor History
-Regularly check execution history for:
-- Failed jobs
-- Unexpected results
-- Performance issues
-
----
-
-## Integration with Skills
-
-Combine scheduling with skills for powerful automation:
-
-```
-Name: Weather Alert
-CRON: 0 7 * * *
-Message: Use the weather skill to check conditions in Seattle.
-         If rain is expected, send a reminder to bring an umbrella.
-```
-
-```
-Name: PR Review Reminder
-CRON: 0 10 * * MON-FRI
-Message: Use the github-pr skill to list open PRs older than 2 days.
-         Send a summary to Slack if any need attention.
+Generate the daily report. If data unavailable,
+notify team via Discord with error details.
 ```
 
 ---
 
-## Timezone Handling
+## Timezone
 
-- All times are in UTC by default
-- The dashboard displays times in your local timezone
-- CRON expressions use server timezone (typically UTC)
-
-Tip: Use explicit timezone references in job names:
-- "Daily Report (9 AM PT)"
-- "Standup Reminder (UTC)"
+- All times are **UTC**
+- Dashboard shows local time
+- Be explicit in job names: "Daily Report (9 AM UTC)"

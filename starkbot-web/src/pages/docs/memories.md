@@ -2,117 +2,123 @@
 name: Memories
 ---
 
-StarkBot's memory system enables long-term context retention across conversations.
-
-## Overview
-
-Memories persist information beyond a single chat session, allowing the agent to:
-
-- Remember user preferences
-- Recall important facts
-- Maintain context across sessions
-- Build up knowledge over time
-
----
+StarkBot's memory system enables long-term context that persists across conversations.
 
 ## Memory Types
 
-### Conversation Memory
-
-Short-term memory within a chat session:
-- Recent messages
-- Current context
-- Tool execution history
-
-Stored in `chat_sessions` table.
-
-### Long-Term Memory
-
-Persistent memories extracted from conversations:
-- Important facts
-- User preferences
-- Recurring information
-
-Stored in `memories` table.
-
-### Daily Logs
-
-Date-specific memories for recurring context:
-- Daily activities
-- Notable events
-- Temporal information
+| Type | Purpose | Importance |
+|------|---------|------------|
+| **DailyLog** | Temporary daily notes | 5 |
+| **LongTerm** | General memories | 7 |
+| **Preference** | User preferences | 7 |
+| **Fact** | Factual information | 7 |
+| **Entity** | Named entities (people, places) | 7 |
+| **Task** | Commitments and todos | 8 |
+| **SessionSummary** | Conversation summaries | - |
 
 ---
 
 ## Memory Markers
 
-The agent extracts memories using special markers in responses:
+The agent extracts memories using markers in responses:
 
 ### [REMEMBER:]
 
-Store a permanent memory:
+Store a general memory:
 
 ```
-[REMEMBER: User prefers dark mode and shorter responses]
+[REMEMBER: User prefers dark mode and concise responses]
 ```
 
 ### [REMEMBER_IMPORTANT:]
 
-Store a high-priority memory:
+Store with high priority:
 
 ```
-[REMEMBER_IMPORTANT: User's project deadline is January 15th]
+[REMEMBER_IMPORTANT: Project deadline is January 15th]
 ```
 
 ### [DAILY_LOG:]
 
-Add to date-specific log:
+Add to today's log:
 
 ```
 [DAILY_LOG: Completed code review for PR #123]
+```
+
+### [PREFERENCE:]
+
+Store a user preference:
+
+```
+[PREFERENCE: User wants responses in bullet points]
+```
+
+### [FACT:]
+
+Store factual information:
+
+```
+[FACT: User's timezone is Pacific (UTC-8)]
+```
+
+### [TASK:]
+
+Store a commitment:
+
+```
+[TASK: Follow up on deployment by Friday]
 ```
 
 ---
 
 ## How Memories Work
 
-### Storage Flow
+### Storage
 
 ```
 Agent Response
-      ↓
-Dispatcher extracts markers
-      ↓
-Parse memory content
-      ↓
-Store in database
-      ↓
+       ↓
+Extract markers ([REMEMBER:], etc.)
+       ↓
+Parse content and type
+       ↓
+Store in database with identity
+       ↓
 Available for future context
 ```
 
-### Retrieval Flow
+### Retrieval
 
 ```
 New Message
-      ↓
-Build context prompt
-      ↓
-Include relevant memories
-      ↓
+       ↓
+Build context for AI
+       ↓
+Include relevant memories (by identity, importance)
+       ↓
 AI has access to stored knowledge
 ```
 
-### Memory Injection
+### Context Injection
 
-Memories are included in the system prompt:
+Memories appear in the system prompt:
 
 ```
-## Long-Term Memories
-- User prefers dark mode and shorter responses
-- Project deadline is January 15th
-- Favorite programming language: Rust
+## Memories
 
-## Today's Log
+**Preferences:**
+- Prefers responses in bullet points
+- Timezone: Pacific (UTC-8)
+
+**Facts:**
+- Works at Acme Corp
+- Uses Rust and TypeScript
+
+**Tasks:**
+- Follow up on deployment by Friday
+
+**Today's Log:**
 - Completed code review for PR #123
 - Deployed v2.1 to staging
 ```
@@ -121,37 +127,95 @@ Memories are included in the system prompt:
 
 ## Managing Memories
 
-### View Memories
+### View
 
-Navigate to **Memories** in the dashboard to see all stored memories.
+Go to **Memories** in the dashboard. Filter by:
+- Identity
+- Memory type
+- Importance level
+- Date range
 
-### Memory Details
+### Search
 
-Each memory shows:
+Search across all memories or within specific types.
+
+### Edit
+
+Click a memory to edit:
 - Content
-- Creation date
-- Priority level
-- Source (which conversation)
+- Type
+- Importance
+- Tags
 
-### Delete Memories
+### Merge
 
-Remove outdated or incorrect memories:
+Consolidate duplicates:
+1. Select similar memories
+2. Click **Merge**
+3. Review combined content
 
-1. Find the memory in the list
-2. Click the delete button
-3. Confirm deletion
+### Delete
 
-> **Note:** Deleted memories are permanently removed.
+Remove outdated memories. Deletion is permanent.
+
+### Export
+
+Download all memories as CSV for backup or analysis.
+
+---
+
+## Memory Consolidation
+
+StarkBot automatically consolidates memories:
+
+- **Deduplication** — Merge similar memories
+- **Summarization** — Compress old session histories
+- **Priority** — Higher importance memories retained longer
+
+Configure in environment:
+
+```bash
+STARK_MEMORY_ENABLE_AUTO_CONSOLIDATION=true
+```
+
+---
+
+## Cross-Session Memory
+
+Share memories across channels for the same identity.
+
+User messages from Telegram, Slack, and web all contribute to the same memory pool.
+
+```bash
+STARK_MEMORY_ENABLE_CROSS_SESSION=true
+STARK_MEMORY_CROSS_SESSION_LIMIT=5
+```
+
+---
+
+## Example Flow
+
+**Conversation 1:**
+
+> User: I prefer TypeScript over JavaScript.
+
+> Agent: Noted! `[PREFERENCE: User prefers TypeScript over JavaScript]`
+
+**Conversation 2 (days later):**
+
+> User: Help me set up a new project.
+
+> Agent: I'll set this up with TypeScript since that's your preference. *(uses stored memory)*
 
 ---
 
 ## Best Practices
 
-### 1. Be Specific
+### Be Specific
 
 Good:
 ```
-[REMEMBER: User's timezone is Pacific (UTC-8)]
+[FACT: User's timezone is Pacific (UTC-8)]
 ```
 
 Not as useful:
@@ -159,118 +223,25 @@ Not as useful:
 [REMEMBER: User is on the west coast]
 ```
 
-### 2. Avoid Duplicates
+### Use Appropriate Types
 
-The agent should check existing memories before creating new ones to avoid redundancy.
+- `[PREFERENCE:]` for how they like things
+- `[FACT:]` for objective information
+- `[TASK:]` for commitments
+- `[DAILY_LOG:]` for temporal events
 
-### 3. Use Appropriate Priority
+### Periodic Cleanup
 
-- `[REMEMBER:]` for general preferences and facts
-- `[REMEMBER_IMPORTANT:]` for critical information
-- `[DAILY_LOG:]` for time-sensitive events
-
-### 4. Periodic Cleanup
-
-Regularly review memories to:
-- Remove outdated information
+Review memories regularly to:
+- Remove outdated info
 - Correct inaccuracies
 - Consolidate related memories
 
 ---
 
-## Memory in Action
+## Privacy
 
-### Example Conversation
-
-**User:** I prefer responses in bullet points.
-
-**Agent:** I'll remember that preference.
-`[REMEMBER: User prefers responses formatted as bullet points]`
-
-**Later conversation:**
-
-**User:** What were the main topics we discussed yesterday?
-
-**Agent:** (Uses daily log from yesterday to provide summary in bullet format)
-
----
-
-### Skill Integration
-
-Skills can leverage memories for personalized behavior:
-
-```markdown
----
-name: personalized-greeting
-description: Greet user with personalized message
-tools: []
----
-
-# Personalized Greeting
-
-Check memories for:
-- User's name
-- Preferred greeting style
-- Recent activities
-
-Generate a greeting that acknowledges the user personally
-and references recent context if appropriate.
-```
-
----
-
-## API Access
-
-### List Memories
-
-```
-GET /api/memories
-```
-
-Response:
-```json
-{
-  "memories": [
-    {
-      "id": "uuid",
-      "content": "User prefers dark mode",
-      "priority": "normal",
-      "created_at": "2024-01-15T10:30:00Z"
-    }
-  ]
-}
-```
-
-### Delete Memory
-
-```
-DELETE /api/memories/:id
-```
-
----
-
-## Technical Details
-
-### Storage
-
-Memories are stored in SQLite:
-
-```sql
-CREATE TABLE memories (
-  id TEXT PRIMARY KEY,
-  content TEXT NOT NULL,
-  priority TEXT DEFAULT 'normal',
-  source_session TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-### Context Window
-
-Memories are included in the context up to a configurable limit to avoid exceeding token limits. Higher priority memories are included first.
-
-### Privacy
-
-- Memories are stored locally in your SQLite database
-- No external transmission of memory data
-- You have full control over what's stored and can delete at any time
+- Memories stored locally in SQLite
+- No external transmission
+- Full control to view, edit, delete
+- Export anytime for backup

@@ -2,57 +2,71 @@
 name: StarkBot Documentation
 ---
 
-Welcome to the StarkBot documentation. StarkBot is a cloud-deployable agentic assistant that interfaces with multiple messaging platforms and integrates AI-powered conversation handling with task automation.
+StarkBot is a self-hosted AI agent platform that connects to messaging platforms, executes tools, remembers context, and integrates with Web3.
 
 ## What is StarkBot?
 
-StarkBot is an autonomous AI assistant framework that:
+A Rust-powered backend with a React dashboard that turns AI models into autonomous agents:
 
-- **Accepts messages** from multiple platforms (Telegram, Slack, Discord, Web)
-- **Leverages AI** (Claude, OpenAI, or Llama) with tool-calling capabilities
-- **Executes tools** (web search, file operations, shell commands, messaging)
-- **Stores memories** for long-term context awareness
-- **Automates tasks** via cron scheduling and heartbeat triggers
-- **Provides a dashboard** for configuration, monitoring, and management
+- **Multi-platform** — Telegram, Slack, Discord, and web chat
+- **Tool execution** — Web search, file ops, shell commands, blockchain transactions
+- **Persistent memory** — Cross-session context with automatic consolidation
+- **Scheduled tasks** — Cron jobs and heartbeat automation
+- **Web3 native** — Wallet auth, x402 payments, on-chain identity
 
-## Key Features
+## Core Capabilities
 
-### Multi-Platform Messaging
-Connect to Telegram, Slack, and Discord simultaneously. Messages are normalized and processed through a unified pipeline.
+| Feature | Description |
+|---------|-------------|
+| **Channels** | Connect multiple platforms simultaneously |
+| **AI Providers** | Claude, OpenAI, Llama with streaming and tool calling |
+| **40+ Tools** | Web, filesystem, exec, messaging, and blockchain |
+| **Skills** | Extend capabilities with custom markdown modules |
+| **Memory** | Facts, preferences, tasks, and daily logs |
+| **Real-time** | WebSocket events for tool progress and transactions |
 
-### AI-Powered Conversations
-Support for multiple AI providers with configurable models and parameters. Extended thinking capabilities for complex tasks.
+## Architecture at a Glance
 
-### Tool Execution
-Built-in tools for web search, file operations, shell command execution, and cross-platform messaging.
-
-### Skills System
-Extensible custom skills that can be uploaded as Markdown or ZIP files.
-
-### Scheduling & Automation
-CRON-based job scheduling and heartbeat triggers for recurring tasks.
-
-### Real-Time Updates
-WebSocket-based event broadcasting for live tool execution progress and message updates.
+```
+┌─────────────────────────────────────────────────────┐
+│            Telegram · Slack · Discord · Web          │
+└─────────────────────────┬───────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│              Message Dispatcher (Rust)              │
+│  normalize → context → AI → tools → memory → reply  │
+└─────────────────────────┬───────────────────────────┘
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+     ┌─────────┐    ┌──────────┐    ┌──────────┐
+     │   AI    │    │  Tools   │    │  SQLite  │
+     │ Claude  │    │ Registry │    │ Database │
+     │ OpenAI  │    │  40+     │    │          │
+     └─────────┘    └──────────┘    └──────────┘
+```
 
 ## Quick Links
 
-- [Getting Started](/docs/getting-started) - Set up and run StarkBot
-- [Architecture](/docs/architecture) - Understand the system design
-- [API Reference](/docs/api) - Backend API endpoints
-- [Tools](/docs/tools) - Available tools and usage
-- [Skills](/docs/skills) - Creating custom skills
-- [Channels](/docs/channels) - Platform integrations
-- [Scheduling](/docs/scheduling) - Cron jobs and heartbeat
-- [Configuration](/docs/configuration) - Environment variables
+| Section | What You'll Learn |
+|---------|-------------------|
+| [Getting Started](/docs/getting-started) | Run StarkBot in 5 minutes |
+| [Architecture](/docs/architecture) | System design deep dive |
+| [Tools](/docs/tools) | Built-in capabilities |
+| [Skills](/docs/skills) | Custom extensions |
+| [Channels](/docs/channels) | Platform integrations |
+| [Scheduling](/docs/scheduling) | Automation and cron |
+| [Memories](/docs/memories) | Long-term context |
+| [Configuration](/docs/configuration) | Environment and settings |
+| [API Reference](/docs/api) | REST and WebSocket APIs |
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|------------|
-| Backend | Rust + Actix-web |
-| Frontend | React + TypeScript + Vite |
+| Layer | Technology |
+|-------|------------|
+| Backend | Rust · Actix-web · Tokio |
+| Frontend | React · TypeScript · Vite |
 | Database | SQLite |
-| Styling | Tailwind CSS |
 | WebSocket | tokio-tungstenite |
-| AI Providers | Anthropic Claude, OpenAI, Llama |
+| Styling | Tailwind CSS |
+| AI | Anthropic Claude · OpenAI · Llama |
+| Auth | Sign In With Ethereum (SIWE) |

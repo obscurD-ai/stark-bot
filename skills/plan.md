@@ -5,6 +5,7 @@ version: 1.0.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"📋"}}
 tags: [development, planning, git, code]
+requires_tools: [read_file, glob, grep]
 ---
 
 # Implementation Planning Skill

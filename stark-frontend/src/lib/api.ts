@@ -231,6 +231,44 @@ export async function deleteSession(id: string): Promise<void> {
   await apiFetch(`/sessions/${id}`, { method: 'DELETE' });
 }
 
+// Get or create a session by channel type and ID
+export async function getOrCreateSession(
+  channelType: string,
+  channelId: number,
+  platformChatId: string
+): Promise<{
+  id: number;
+  channel_type: string;
+  channel_id: number;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
+}> {
+  return apiFetch('/sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      channel_type: channelType,
+      channel_id: channelId,
+      platform_chat_id: platformChatId,
+    }),
+  });
+}
+
+// Get the web chat session (channel_type="web", channel_id=0)
+export async function getWebSession(): Promise<{
+  id: number;
+  channel_type: string;
+  channel_id: number;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
+} | null> {
+  // First try to find existing web session in the list
+  const sessions = await getSessions();
+  const webSession = sessions.find(s => s.channel_type === 'web' && s.channel_id === 0);
+  return webSession || null;
+}
+
 // Memories API - Enhanced (Phase 5)
 export interface MemoryInfo {
   id: number;
@@ -838,13 +876,10 @@ export async function stopExecution(): Promise<StopExecutionResponse> {
 }
 
 // Subagent API
-export interface SubagentInfo {
-  id: string;
-  label: string;
-  task: string;
-  status: string;
-  started_at: string;
-}
+// Types imported from shared subagent-types.ts which matches Rust SubAgentStatus enum
+import { Subagent, SubagentStatus } from '@/lib/subagent-types';
+export { SubagentStatus };
+export type SubagentInfo = Subagent;
 
 export interface SubagentListResponse {
   success: boolean;

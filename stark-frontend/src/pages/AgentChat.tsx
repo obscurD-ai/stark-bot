@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Send, RotateCcw, Copy, Check, Wallet, Bug, Square } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import ChatMessage from '@/components/chat/ChatMessage';
@@ -9,10 +10,11 @@ import CommandAutocomplete from '@/components/chat/CommandAutocomplete';
 import CommandMenu from '@/components/chat/CommandMenu';
 import TransactionTracker from '@/components/chat/TransactionTracker';
 import { ConfirmationPrompt } from '@/components/chat/ConfirmationPrompt';
-import SubagentBadge, { Subagent } from '@/components/chat/SubagentBadge';
+import SubagentBadge from '@/components/chat/SubagentBadge';
+import { Subagent, SubagentStatus } from '@/lib/subagent-types';
 import { useGateway } from '@/hooks/useGateway';
 import { useWallet } from '@/hooks/useWallet';
-import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents } from '@/lib/api';
+import { sendChatMessage, getAgentSettings, getSkills, getTools, confirmTransaction, cancelTransaction, stopExecution, listSubagents, getWebSession, getSessionTranscript } from '@/lib/api';
 import { Command, COMMAND_DEFINITIONS, getAllCommands } from '@/lib/commands';
 import type { ChatMessage as ChatMessageType, MessageRole, SlashCommand, TrackedTransaction, TxPendingEvent, TxConfirmedEvent, PendingConfirmation, ConfirmationRequiredEvent } from '@/types';
 
@@ -26,6 +28,12 @@ const STORAGE_KEY_MESSAGES = 'agentChat_messages';
 const STORAGE_KEY_HISTORY = 'agentChat_history';
 const STORAGE_KEY_MODE = 'agentChat_mode';
 const STORAGE_KEY_SUBTYPE = 'agentChat_subtype';
+const STORAGE_KEY_SESSION_ID = 'agentChat_sessionId';
+
+// Generate a new session ID
+function generateSessionId(): string {
+  return crypto.randomUUID();
+}
 
 // Helper to safely parse JSON from localStorage
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -67,9 +75,19 @@ export default function AgentChat() {
   const [agentSubtype, setAgentSubtype] = useState<{ subtype: string; label: string } | null>(() =>
     loadFromStorage<{ subtype: string; label: string } | null>(STORAGE_KEY_SUBTYPE, null)
   );
+  const [sessionId, setSessionId] = useState<string>(() => {
+    const stored = localStorage.getItem(STORAGE_KEY_SESSION_ID);
+    if (stored) return stored;
+    const newId = generateSessionId();
+    localStorage.setItem(STORAGE_KEY_SESSION_ID, newId);
+    return newId;
+  });
+  const [dbSessionId, setDbSessionId] = useState<number | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
   const { connected, on, off } = useGateway();
   const { address, usdcBalance, isConnected: walletConnected, connect: connectWallet, isCorrectNetwork } = useWallet();
 
@@ -118,6 +136,50 @@ export default function AgentChat() {
     loadFromStorage<ConversationMessage[]>(STORAGE_KEY_HISTORY, [])
   );
 
+  // Load chat history from database on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const webSession = await getWebSession();
+        if (webSession) {
+          setDbSessionId(webSession.id);
+          // Only load if we have messages and haven't loaded yet
+          if (webSession.message_count && webSession.message_count > 0 && !historyLoaded) {
+            const transcript = await getSessionTranscript(webSession.id);
+            if (transcript.messages.length > 0) {
+              // Convert DB messages to frontend format
+              const dbMessages: ChatMessageType[] = transcript.messages.map((msg, index) => ({
+                id: `db-${msg.id || index}`,
+                role: msg.role as MessageRole,
+                content: msg.content,
+                timestamp: new Date(msg.created_at),
+                sessionId: sessionId,
+              }));
+
+              // Replace localStorage messages with DB messages
+              setMessages(dbMessages);
+
+              // Also update conversation history for API (filter out tool_call and tool_result)
+              conversationHistory.current = transcript.messages
+                .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+                .map(msg => ({
+                  role: msg.role,
+                  content: msg.content,
+                }));
+              localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(conversationHistory.current));
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load chat history from database:', err);
+      } finally {
+        setHistoryLoaded(true);
+      }
+    };
+
+    loadHistory();
+  }, []); // Only run on mount
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -140,6 +202,7 @@ export default function AgentChat() {
         role: 'tool' as MessageRole,
         content,
         timestamp: new Date(),
+        sessionId,
       };
       setMessages((prev) => [...prev, message]);
     };
@@ -149,7 +212,7 @@ export default function AgentChat() {
       console.log('[AgentChat] Unregistering agent.tool_call listener');
       off('agent.tool_call', handleToolCall);
     };
-  }, [on, off]);
+  }, [on, off, sessionId]);
 
   // Listen for tool result events to show success/failure in chat
   useEffect(() => {
@@ -170,6 +233,7 @@ export default function AgentChat() {
         role: event.success ? 'tool' as MessageRole : 'error' as MessageRole,
         content,
         timestamp: new Date(),
+        sessionId,
       };
       setMessages((prev) => [...prev, message]);
     };
@@ -179,7 +243,7 @@ export default function AgentChat() {
       console.log('[AgentChat] Unregistering tool.result listener');
       off('tool.result', handleToolResult);
     };
-  }, [on, off]);
+  }, [on, off, sessionId]);
 
   // Listen for transaction events
   useEffect(() => {
@@ -281,6 +345,7 @@ export default function AgentChat() {
             role: 'system' as MessageRole,
             content: `💭 ${event.message}`,
             timestamp: new Date(event.timestamp),
+            sessionId,
           },
         ];
       });
@@ -297,6 +362,7 @@ export default function AgentChat() {
           role: 'system' as MessageRole,
           content: `⚠️ ${event.error}`,
           timestamp: new Date(event.timestamp),
+          sessionId,
         },
       ]);
     };
@@ -311,6 +377,7 @@ export default function AgentChat() {
           role: 'system' as MessageRole,
           content: `⚠️ [${event.warning_type}] ${event.message}`,
           timestamp: new Date(event.timestamp),
+          sessionId,
         },
       ]);
     };
@@ -324,7 +391,7 @@ export default function AgentChat() {
       off('agent.error', handleError);
       off('agent.warning', handleWarning);
     };
-  }, [on, off]);
+  }, [on, off, sessionId]);
 
   // Listen for execution lifecycle events to track loading state
   useEffect(() => {
@@ -395,7 +462,7 @@ export default function AgentChat() {
           id: event.subagent_id,
           label: event.label,
           task: event.task,
-          status: 'Running',
+          status: SubagentStatus.Running,
           started_at: event.timestamp,
         },
       ]);
@@ -405,7 +472,7 @@ export default function AgentChat() {
       const event = data as { subagent_id: string };
       console.log('[Subagent] Completed:', event.subagent_id);
       setSubagents((prev) => prev.map(s =>
-        s.id === event.subagent_id ? { ...s, status: 'Completed' } : s
+        s.id === event.subagent_id ? { ...s, status: SubagentStatus.Completed } : s
       ));
     };
 
@@ -413,7 +480,7 @@ export default function AgentChat() {
       const event = data as { subagent_id: string };
       console.log('[Subagent] Failed:', event.subagent_id);
       setSubagents((prev) => prev.map(s =>
-        s.id === event.subagent_id ? { ...s, status: 'Failed' } : s
+        s.id === event.subagent_id ? { ...s, status: SubagentStatus.Failed } : s
       ));
     };
 
@@ -454,6 +521,7 @@ export default function AgentChat() {
       role,
       content,
       timestamp: new Date(),
+      sessionId,
     };
     setMessages((prev) => [...prev, message]);
 
@@ -462,7 +530,7 @@ export default function AgentChat() {
       conversationHistory.current.push({ role, content });
       localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(conversationHistory.current));
     }
-  }, []);
+  }, [sessionId]);
 
   // Command handlers map - uses Command enum for type safety
   const commandHandlers: Record<Command, () => void | Promise<void>> = {
@@ -484,27 +552,49 @@ export default function AgentChat() {
       addMessage('system', `**Session Status:**\n\n• Messages: ${messageCount}\n• Duration: ${mins}m ${secs}s\n• Provider: ${(settings as Record<string, unknown>).provider || 'anthropic'}\n• Est. tokens: ~${tokenEstimate}`);
     },
     [Command.New]: () => {
-      setMessages([]);
+      const newSessionId = generateSessionId();
+      setSessionId(newSessionId);
+      localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
       localStorage.removeItem(STORAGE_KEY_SUBTYPE);
       setAgentMode(null);
       setAgentSubtype(null);
-      addMessage('system', 'Conversation cleared. Starting fresh.');
+      // Add welcome message with new session ID
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: 'system' as MessageRole,
+        content: 'Conversation cleared. Starting fresh.',
+        timestamp: new Date(),
+        sessionId: newSessionId,
+      };
+      setMessages((prev) => [...prev, message]);
     },
     [Command.Reset]: () => {
-      setMessages([]);
+      const newSessionId = generateSessionId();
+      setSessionId(newSessionId);
+      localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
       localStorage.removeItem(STORAGE_KEY_SUBTYPE);
       setAgentMode(null);
       setAgentSubtype(null);
-      addMessage('system', 'Conversation reset.');
+      // Add reset message with new session ID
+      const message: ChatMessageType = {
+        id: crypto.randomUUID(),
+        role: 'system' as MessageRole,
+        content: 'Conversation reset.',
+        timestamp: new Date(),
+        sessionId: newSessionId,
+      };
+      setMessages((prev) => [...prev, message]);
     },
     [Command.Clear]: () => {
-      setMessages([]);
+      const newSessionId = generateSessionId();
+      setSessionId(newSessionId);
+      localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
       conversationHistory.current = [];
       localStorage.removeItem(STORAGE_KEY_HISTORY);
       localStorage.removeItem(STORAGE_KEY_MODE);
@@ -751,6 +841,16 @@ export default function AgentChat() {
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 bg-slate-800/50">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold text-white">Agent Chat</h1>
+          <div
+            className="flex items-center gap-2 bg-slate-700/50 px-2 py-1 rounded cursor-pointer hover:bg-slate-600/50 transition-colors"
+            onClick={() => navigate('/sessions')}
+            title="View all chat sessions"
+          >
+            <span className="text-xs text-slate-500">Session:</span>
+            <span className="text-xs font-mono text-slate-300">
+              {dbSessionId ? dbSessionId.toString(16).padStart(8, '0') : sessionId.slice(0, 8)}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -871,22 +971,28 @@ export default function AgentChat() {
             variant="ghost"
             size="sm"
             onClick={async () => {
-              if (isLoading) {
-                // Stop the execution
+              const hasRunningSubagents = subagents.some(s => s.status === SubagentStatus.Running);
+              if (isLoading || hasRunningSubagents) {
+                // Stop ALL executions including subagents
                 try {
                   const result = await stopExecution();
                   if (result.success) {
                     setIsLoading(false);
-                    addMessage('system', result.message || 'Execution stopped.');
+                    // Mark all subagents as cancelled
+                    setSubagents(prev => prev.map(s =>
+                      s.status === SubagentStatus.Running ? { ...s, status: SubagentStatus.Cancelled } : s
+                    ));
+                    addMessage('system', result.message || 'All executions stopped.');
                   }
                 } catch (error) {
                   console.error('Failed to stop execution:', error);
                 }
               } else {
-                // Clear the chat
-                setMessages([]);
+                // Clear the chat and start new session
+                const newSessionId = generateSessionId();
+                setSessionId(newSessionId);
+                localStorage.setItem(STORAGE_KEY_SESSION_ID, newSessionId);
                 conversationHistory.current = [];
-                localStorage.removeItem(STORAGE_KEY_MESSAGES);
                 localStorage.removeItem(STORAGE_KEY_HISTORY);
                 localStorage.removeItem(STORAGE_KEY_MODE);
                 localStorage.removeItem(STORAGE_KEY_SUBTYPE);
@@ -895,7 +1001,7 @@ export default function AgentChat() {
               }
             }}
           >
-            {isLoading ? (
+            {(isLoading || subagents.some(s => s.status === SubagentStatus.Running)) ? (
               <>
                 <Square className="w-4 h-4 mr-2" />
                 Stop
@@ -912,7 +1018,7 @@ export default function AgentChat() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6">
-        {messages.length === 0 ? (
+        {messages.filter((m) => m.sessionId === sessionId).length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
               <h2 className="text-xl font-semibold text-white mb-2">
@@ -925,14 +1031,16 @@ export default function AgentChat() {
           </div>
         ) : (
           <>
-            {messages.map((message) => (
-              <ChatMessage
-                key={message.id}
-                role={message.role}
-                content={message.content}
-                timestamp={message.timestamp}
-              />
-            ))}
+            {messages
+              .filter((message) => message.sessionId === sessionId)
+              .map((message) => (
+                <ChatMessage
+                  key={message.id}
+                  role={message.role}
+                  content={message.content}
+                  timestamp={message.timestamp}
+                />
+              ))}
             {isLoading && <TypingIndicator />}
           </>
         )}

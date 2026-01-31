@@ -3,8 +3,9 @@ name: weth
 description: "Wrap ETH to WETH or unwrap WETH to ETH on Base or Mainnet"
 version: 2.2.0
 author: starkbot
-metadata: {"clawdbot":{"emoji":"🔄","requires":{"tools":["web3_function_call", "register_set", "ask_user"]}}}
+metadata: {"clawdbot":{"emoji":"🔄"}}
 tags: [crypto, defi, finance, weth, wrap, unwrap, base]
+requires_tools: [web, register_set]
 ---
 
 # WETH Wrap/Unwrap

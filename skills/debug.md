@@ -5,6 +5,7 @@ version: 1.0.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🐛"}}
 tags: [development, debugging, errors, code]
+requires_tools: [read_file, list_files, grep, exec]
 ---
 
 # Debug Skill

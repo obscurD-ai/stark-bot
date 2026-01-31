@@ -32,6 +32,8 @@ pub enum ToolGroup {
     Messaging,
     /// Social/Marketing tools - twitter, scheduling, etc.
     Social,
+    /// Memory tools - long-term memory storage and retrieval
+    Memory,
 }
 
 impl ToolGroup {
@@ -51,6 +53,7 @@ impl ToolGroup {
             ToolGroup::Exec => "Execution Tools",
             ToolGroup::Messaging => "Messaging Tools",
             ToolGroup::Social => "Social/Marketing Tools",
+            ToolGroup::Memory => "Memory Tools",
         }
     }
 
@@ -65,6 +68,7 @@ impl ToolGroup {
             ToolGroup::Exec => "Shell command execution",
             ToolGroup::Messaging => "Inter-agent and external messaging",
             ToolGroup::Social => "Social media and marketing integrations",
+            ToolGroup::Memory => "Long-term memory storage and retrieval",
         }
     }
 
@@ -79,6 +83,7 @@ impl ToolGroup {
             "exec" => Some(ToolGroup::Exec),
             "messaging" => Some(ToolGroup::Messaging),
             "social" | "marketing" | "twitter" => Some(ToolGroup::Social),
+            "memory" => Some(ToolGroup::Memory),
             _ => None,
         }
     }
@@ -94,6 +99,7 @@ impl ToolGroup {
             ToolGroup::Exec => "exec",
             ToolGroup::Messaging => "messaging",
             ToolGroup::Social => "social",
+            ToolGroup::Memory => "memory",
         }
     }
 }

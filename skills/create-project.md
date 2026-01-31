@@ -5,6 +5,7 @@ version: 1.0.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🚀"}}
 tags: [development, git, code, project, scaffold]
+requires_tools: [git, committer, deploy, exec, github_user, pr_quality, write_file]
 ---
 
 # Create Project Skill

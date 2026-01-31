@@ -117,6 +117,42 @@ impl WebFetchTool {
                 enum_values: None,
             },
         );
+        properties.insert(
+            "headers".to_string(),
+            PropertySchema {
+                schema_type: "object".to_string(),
+                description: "Optional HTTP headers to include in the request. Environment variables like $VAR_NAME will be expanded.".to_string(),
+                default: None,
+                items: None,
+                enum_values: None,
+            },
+        );
+        properties.insert(
+            "method".to_string(),
+            PropertySchema {
+                schema_type: "string".to_string(),
+                description: "HTTP method to use (default: GET)".to_string(),
+                default: Some(json!("GET")),
+                items: None,
+                enum_values: Some(vec![
+                    "GET".to_string(),
+                    "POST".to_string(),
+                    "PUT".to_string(),
+                    "PATCH".to_string(),
+                    "DELETE".to_string(),
+                ]),
+            },
+        );
+        properties.insert(
+            "body".to_string(),
+            PropertySchema {
+                schema_type: "object".to_string(),
+                description: "Request body for POST/PUT/PATCH requests. Will be sent as JSON.".to_string(),
+                default: None,
+                items: None,
+                enum_values: None,
+            },
+        );
 
         WebFetchTool {
             definition: ToolDefinition {
@@ -148,6 +184,31 @@ struct WebFetchParams {
     extract_mode: Option<String>,
     // Legacy parameter support
     extract_text: Option<bool>,
+    // Optional custom headers
+    headers: Option<HashMap<String, String>>,
+    // HTTP method (GET, POST, PUT, PATCH, DELETE)
+    method: Option<String>,
+    // Request body for POST/PUT/PATCH
+    body: Option<Value>,
+}
+
+/// Expand environment variables in a string (e.g., $VAR_NAME or ${VAR_NAME})
+fn expand_env_vars(s: &str) -> String {
+    let mut result = s.to_string();
+
+    // Handle ${VAR_NAME} format
+    let re_braces = regex::Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}").unwrap();
+    result = re_braces.replace_all(&result, |caps: &regex::Captures| {
+        std::env::var(&caps[1]).unwrap_or_default()
+    }).to_string();
+
+    // Handle $VAR_NAME format
+    let re_simple = regex::Regex::new(r"\$([A-Za-z_][A-Za-z0-9_]*)").unwrap();
+    result = re_simple.replace_all(&result, |caps: &regex::Captures| {
+        std::env::var(&caps[1]).unwrap_or_default()
+    }).to_string();
+
+    result
 }
 
 #[async_trait]
@@ -189,13 +250,17 @@ impl Tool for WebFetchTool {
             return ToolResult::error(e);
         }
 
-        // Build cache key
+        // Build cache key (include method - don't cache POST/PUT/PATCH/DELETE)
+        let method = params.method.as_deref().unwrap_or("GET").to_uppercase();
+        let should_cache = method == "GET";
         let cache_key = format!("{}:{}:{}", params.url, extract_mode, max_chars);
 
-        // Check cache first
-        if let Some(cached) = self.cache.get(&cache_key) {
-            log::debug!("web_fetch: returning cached result for URL '{}'", params.url);
-            return cached;
+        // Check cache first (only for GET requests)
+        if should_cache {
+            if let Some(cached) = self.cache.get(&cache_key) {
+                log::debug!("web_fetch: returning cached result for URL '{}'", params.url);
+                return cached;
+            }
         }
 
         let client = reqwest::Client::builder()
@@ -209,7 +274,38 @@ impl Tool for WebFetchTool {
         let retry_key = url.host_str().unwrap_or("unknown").to_string();
         let retry_manager = HttpRetryManager::global();
 
-        let response = match client.get(&params.url).send().await {
+        // Build request with appropriate method
+        let mut request = match method.as_str() {
+            "POST" => client.post(&params.url),
+            "PUT" => client.put(&params.url),
+            "PATCH" => client.patch(&params.url),
+            "DELETE" => client.delete(&params.url),
+            _ => client.get(&params.url),
+        };
+
+        // Add request body for POST/PUT/PATCH
+        if let Some(ref body) = params.body {
+            if matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
+                request = request
+                    .header("Content-Type", "application/json")
+                    .json(body);
+            }
+        }
+
+        // Add optional headers
+        if let Some(ref headers) = params.headers {
+            for (key, value) in headers {
+                // Expand environment variables in header values
+                let expanded_value = expand_env_vars(value);
+                if let Ok(header_name) = reqwest::header::HeaderName::from_bytes(key.as_bytes()) {
+                    if let Ok(header_value) = reqwest::header::HeaderValue::from_str(&expanded_value) {
+                        request = request.header(header_name, header_value);
+                    }
+                }
+            }
+        }
+
+        let response = match request.send().await {
             Ok(r) => r,
             Err(e) => {
                 let error_msg = format!("Failed to fetch URL: {}", e);
@@ -225,7 +321,18 @@ impl Tool for WebFetchTool {
         let status = response.status();
 
         if !status.is_success() {
-            let error_msg = format!("HTTP error: {} for URL: {}", status, params.url);
+            // Extract the response body to include in the error message (truncate to avoid huge HTML pages)
+            let body = response.text().await.unwrap_or_default();
+            let truncated_body = if body.len() > 2000 {
+                format!("{}...\n[truncated, {} total bytes]", &body[..2000], body.len())
+            } else {
+                body
+            };
+            let error_msg = if truncated_body.is_empty() {
+                format!("HTTP error: {} for URL: {}", status, params.url)
+            } else {
+                format!("HTTP error: {} for URL: {}\n\nResponse body:\n{}", status, params.url, truncated_body)
+            };
             if HttpRetryManager::is_retryable_status(status.as_u16()) {
                 let delay = retry_manager.record_error(&retry_key);
                 return ToolResult::retryable_error(error_msg, delay);
@@ -281,8 +388,10 @@ impl Tool for WebFetchTool {
             "cached": false
         }));
 
-        // Cache successful results
-        self.cache.set(cache_key, result.clone());
+        // Cache successful GET results only
+        if should_cache {
+            self.cache.set(cache_key, result.clone());
+        }
 
         result
     }

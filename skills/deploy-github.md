@@ -5,6 +5,7 @@ version: 1.0.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🚢"}}
 tags: [development, git, github, deployment, ci-cd]
+requires_tools: [git, committer, deploy, pr_quality, exec]
 ---
 
 # Deploy to GitHub Skill

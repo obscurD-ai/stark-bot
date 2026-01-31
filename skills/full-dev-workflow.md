@@ -5,6 +5,7 @@ version: 1.0.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"⚡"}}
 tags: [development, git, github, code, workflow, deployment]
+requires_tools: [git, committer, deploy, exec, pr_quality, read_file, write_file, edit_file, glob, grep]
 ---
 
 # Full Development Workflow

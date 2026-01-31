@@ -48,8 +48,8 @@ pub struct SubAgentManager {
     total_semaphore: Arc<Semaphore>,
     /// Per-channel semaphores for limiting concurrent sub-agents per channel
     channel_semaphores: DashMap<i64, Arc<Semaphore>>,
-    /// Active sub-agents indexed by ID
-    active_agents: DashMap<String, SubAgentHandle>,
+    /// Active sub-agents indexed by ID (Arc-wrapped for sharing with spawned tasks)
+    active_agents: Arc<DashMap<String, SubAgentHandle>>,
     /// Burner wallet private key for x402 payments
     burner_wallet_private_key: Option<String>,
 }
@@ -78,7 +78,7 @@ impl SubAgentManager {
             tool_registry,
             total_semaphore: Arc::new(Semaphore::new(config.max_total_concurrent)),
             channel_semaphores: DashMap::new(),
-            active_agents: DashMap::new(),
+            active_agents: Arc::new(DashMap::new()),
             config,
             burner_wallet_private_key,
         }
@@ -148,6 +148,8 @@ impl SubAgentManager {
         let total_sem = self.total_semaphore.clone();
         let channel_sem = self.get_channel_semaphore(context.parent_channel_id);
         let burner_key = self.burner_wallet_private_key.clone();
+        let active_agents = self.active_agents.clone();
+        let subagent_id_for_cleanup = subagent_id.clone();
 
         // Spawn the execution task
         tokio::spawn(async move {
@@ -233,10 +235,13 @@ impl SubAgentManager {
                 final_context.status
             );
 
-            // Note: The active_agents entry will be cleaned up when:
-            // 1. The cancel handle is dropped (task completion)
-            // 2. Explicitly via the cancel() method
-            // 3. On next spawn() when the ID is reused (unlikely with atomic counter)
+            // Clean up from active_agents DashMap
+            if active_agents.remove(&subagent_id_for_cleanup).is_some() {
+                log::debug!(
+                    "[SUBAGENT_MANAGER] Cleaned up subagent {} from active_agents",
+                    subagent_id_for_cleanup
+                );
+            }
         });
 
         Ok(subagent_id)

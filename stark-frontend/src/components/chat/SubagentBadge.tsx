@@ -1,14 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Users, X, Loader2 } from 'lucide-react';
 import { cancelSubagent } from '@/lib/api';
+import { Subagent, SubagentStatus } from '@/lib/subagent-types';
 
-export interface Subagent {
-  id: string;
-  label: string;
-  task: string;
-  status: string;
-  started_at: string;
-}
+// Re-export types for backwards compatibility
+export type { Subagent } from '@/lib/subagent-types';
+export { SubagentStatus } from '@/lib/subagent-types';
 
 interface SubagentBadgeProps {
   subagents: Subagent[];
@@ -21,7 +18,7 @@ export default function SubagentBadge({ subagents, onSubagentCancelled }: Subage
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Only show running subagents
-  const runningSubagents = subagents.filter(s => s.status === 'Running' || s.status === 'Pending');
+  const runningSubagents = subagents.filter(s => s.status === SubagentStatus.Running || s.status === SubagentStatus.Pending);
 
   // Debug log
   console.log('[SubagentBadge] Total:', subagents.length, 'Running:', runningSubagents.length, 'Statuses:', subagents.map(s => s.status));
@@ -100,7 +97,7 @@ export default function SubagentBadge({ subagents, onSubagentCancelled }: Subage
                         {subagent.label}
                       </span>
                       <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        subagent.status === 'Running'
+                        subagent.status === SubagentStatus.Running
                           ? 'bg-green-500/20 text-green-400'
                           : 'bg-yellow-500/20 text-yellow-400'
                       }`}>

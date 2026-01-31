@@ -378,11 +378,14 @@ impl MessageDispatcher {
         }
 
         // Add conversation history (skip the last one since it's the current message)
+        // Also skip tool calls and results as they're not part of the AI conversation format
         for msg in history.iter().take(history.len().saturating_sub(1)) {
             let role = match msg.role {
                 DbMessageRole::User => MessageRole::User,
                 DbMessageRole::Assistant => MessageRole::Assistant,
                 DbMessageRole::System => MessageRole::System,
+                // Skip tool calls and results - they're stored for history but not sent to AI
+                DbMessageRole::ToolCall | DbMessageRole::ToolResult => continue,
             };
             messages.push(Message {
                 role,
@@ -1165,6 +1168,24 @@ impl MessageDispatcher {
                     &call.arguments,
                 ));
 
+                // Save tool call to session
+                let tool_call_content = format!(
+                    "**Tool:** `{}`\n```json\n{}\n```",
+                    call.name,
+                    args_pretty
+                );
+                if let Err(e) = self.db.add_session_message(
+                    session_id,
+                    DbMessageRole::ToolCall,
+                    &tool_call_content,
+                    None,
+                    Some(&call.name),
+                    None,
+                    None,
+                ) {
+                    log::error!("Failed to save tool call to session: {}", e);
+                }
+
                 // Check if this is an orchestrator tool
                 let orchestrator_result = orchestrator.process_tool_result(&call.name, &call.arguments);
 
@@ -1314,6 +1335,16 @@ impl MessageDispatcher {
                                 user_question_content = result.content.clone();
                                 log::info!("[ORCHESTRATED_LOOP] Tool requires user response, will break after processing");
                             }
+                            // Check if task_fully_completed was called - agent signals it's done
+                            if metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                orchestrator_complete = true;
+                                if let Some(summary) = metadata.get("summary").and_then(|v| v.as_str()) {
+                                    final_summary = summary.to_string();
+                                } else {
+                                    final_summary = result.content.clone();
+                                }
+                                log::info!("[ORCHESTRATED_LOOP] Task fully completed signal received");
+                            }
                         }
 
                         self.broadcaster.broadcast(GatewayEvent::tool_result(
@@ -1323,6 +1354,25 @@ impl MessageDispatcher {
                             0,
                             &result.content,
                         ));
+
+                        // Save tool result to session
+                        let tool_result_content = format!(
+                            "**{}:** {}\n{}",
+                            if result.success { "Result" } else { "Error" },
+                            call.name,
+                            result.content
+                        );
+                        if let Err(e) = self.db.add_session_message(
+                            session_id,
+                            DbMessageRole::ToolResult,
+                            &tool_result_content,
+                            None,
+                            Some(&call.name),
+                            None,
+                            None,
+                        ) {
+                            log::error!("Failed to save tool result to session: {}", e);
+                        }
 
                         tool_responses.push(if result.success {
                             ToolResponse::success(call.id.clone(), result.content)
@@ -1539,6 +1589,24 @@ impl MessageDispatcher {
                             &tool_call.tool_params,
                         ));
 
+                        // Save tool call to session
+                        let tool_call_content = format!(
+                            "**Tool:** `{}`\n```json\n{}\n```",
+                            tool_call.tool_name,
+                            args_pretty
+                        );
+                        if let Err(e) = self.db.add_session_message(
+                            session_id,
+                            DbMessageRole::ToolCall,
+                            &tool_call_content,
+                            None,
+                            Some(&tool_call.tool_name),
+                            None,
+                            None,
+                        ) {
+                            log::error!("Failed to save tool call to session: {}", e);
+                        }
+
                         // Check if orchestrator tool
                         let orchestrator_result = orchestrator.process_tool_result(
                             &tool_call.tool_name,
@@ -1661,6 +1729,16 @@ impl MessageDispatcher {
                                         user_question_content = result.content.clone();
                                         log::info!("[TEXT_ORCHESTRATED] Tool requires user response, will break after processing");
                                     }
+                                    // Check if task_fully_completed was called - agent signals it's done
+                                    if metadata.get("task_fully_completed").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                        orchestrator_complete = true;
+                                        if let Some(summary) = metadata.get("summary").and_then(|v| v.as_str()) {
+                                            final_response = summary.to_string();
+                                        } else {
+                                            final_response = result.content.clone();
+                                        }
+                                        log::info!("[TEXT_ORCHESTRATED] Task fully completed signal received");
+                                    }
                                 }
 
                                 self.broadcaster.broadcast(GatewayEvent::tool_result(
@@ -1670,6 +1748,25 @@ impl MessageDispatcher {
                                     0,
                                     &result.content,
                                 ));
+
+                                // Save tool result to session
+                                let tool_result_msg = format!(
+                                    "**{}:** {}\n{}",
+                                    if result.success { "Result" } else { "Error" },
+                                    tool_call.tool_name,
+                                    result.content
+                                );
+                                if let Err(e) = self.db.add_session_message(
+                                    session_id,
+                                    DbMessageRole::ToolResult,
+                                    &tool_result_msg,
+                                    None,
+                                    Some(&tool_call.tool_name),
+                                    None,
+                                    None,
+                                ) {
+                                    log::error!("Failed to save tool result to session: {}", e);
+                                }
 
                                 result.content
                             }
@@ -2487,6 +2584,21 @@ impl MessageDispatcher {
     async fn handle_reset_command(&self, message: &NormalizedMessage) -> DispatchResult {
         // Cancel any ongoing execution for this channel
         self.execution_tracker.cancel_execution(message.channel_id);
+
+        // Cancel all subagents for this channel
+        if let Some(ref manager) = self.subagent_manager {
+            let cancelled = manager.cancel_all_for_channel(message.channel_id);
+            if cancelled > 0 {
+                log::info!(
+                    "[RESET] Cancelled {} subagents for channel {}",
+                    cancelled,
+                    message.channel_id
+                );
+            }
+        }
+
+        // Brief delay to ensure in-flight operations acknowledge cancellation
+        tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Determine session scope
         let scope = if message.chat_id != message.user_id {

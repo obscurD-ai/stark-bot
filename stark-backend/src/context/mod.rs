@@ -147,6 +147,8 @@ impl ContextManager {
                     DbMessageRole::User => "User",
                     DbMessageRole::Assistant => "Assistant",
                     DbMessageRole::System => "System",
+                    DbMessageRole::ToolCall => "Tool Call",
+                    DbMessageRole::ToolResult => "Tool Result",
                 };
                 format!("{}: {}", role, m.content)
             })
@@ -311,6 +313,8 @@ impl ContextManager {
                     DbMessageRole::User => "User",
                     DbMessageRole::Assistant => "Assistant",
                     DbMessageRole::System => "System",
+                    DbMessageRole::ToolCall => "Tool Call",
+                    DbMessageRole::ToolResult => "Tool Result",
                 };
                 format!("{}: {}", role, m.content)
             })
@@ -410,6 +414,8 @@ pub async fn save_session_memory(
                 DbMessageRole::User => "User",
                 DbMessageRole::Assistant => "Assistant",
                 DbMessageRole::System => "System",
+                DbMessageRole::ToolCall => "Tool Call",
+                DbMessageRole::ToolResult => "Tool Result",
             };
             format!("{}: {}", role, m.content)
         })

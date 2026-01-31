@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 
 /// Message role in the conversation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     User,
     Assistant,
     System,
+    ToolCall,
+    ToolResult,
 }
 
 impl MessageRole {
@@ -16,6 +18,8 @@ impl MessageRole {
             MessageRole::User => "user",
             MessageRole::Assistant => "assistant",
             MessageRole::System => "system",
+            MessageRole::ToolCall => "tool_call",
+            MessageRole::ToolResult => "tool_result",
         }
     }
 
@@ -24,6 +28,8 @@ impl MessageRole {
             "user" => Some(MessageRole::User),
             "assistant" => Some(MessageRole::Assistant),
             "system" => Some(MessageRole::System),
+            "tool_call" => Some(MessageRole::ToolCall),
+            "tool_result" => Some(MessageRole::ToolResult),
             _ => None,
         }
     }

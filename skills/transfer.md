@@ -4,9 +4,9 @@ description: "Transfer ETH or ERC20 tokens on Base/Ethereum using the burner wal
 version: 3.1.0
 author: starkbot
 homepage: https://basescan.org
-metadata: {"requires_auth": false, "clawdbot":{"emoji":"💸","requires":{"bins":[]}}}
-requires_binaries: []
+metadata: {"requires_auth": false, "clawdbot":{"emoji":"💸"}}
 tags: [crypto, transfer, send, eth, erc20, base, wallet]
+requires_tools: [web, x, register_set]
 ---
 
 # Token Transfer Skill

@@ -59,6 +59,8 @@ export default function ChatMessage({ role, content, timestamp }: ChatMessagePro
     command: 'bg-slate-700 text-stark-400',
     'tool-indicator': 'bg-amber-500/20 text-amber-400 border border-amber-500/50',
     tool: 'bg-purple-500/20 text-purple-300 border border-purple-500/50',
+    tool_call: 'bg-amber-500/20 text-amber-400 border border-amber-500/50',
+    tool_result: 'bg-green-500/20 text-green-400 border border-green-500/50',
   };
 
   if (isToolIndicator) {

@@ -93,22 +93,63 @@ Example workflow:
 - Use `add_note` to track important information during complex tasks
 - Always verify results before reporting success
 
-## Memory Tools: Use Sparingly
+## Completing Tasks
 
-**Don't fish for memories.** If `memory_search` returns nothing, accept it and move on.
+When you have finished gathering all necessary information and are ready to respond to the user, call `task_fully_completed` to signal you're done. This stops the agentic loop.
 
-❌ **Bad pattern** (wasteful):
-```
-memory_search("moltbook registration") → No results
-memory_get(entity_name="moltbook") → No results
-memory_search("moltbook agent") → No results
-memory_get(entity_name="StarkBot") → No results
+```json
+{"tool": "task_fully_completed", "summary": "Retrieved user's wallet balance: 1.5 ETH"}
 ```
 
-✅ **Good pattern** (efficient):
+**When to call `task_fully_completed`:**
+- You have all the information needed to answer the user's question
+- You have completed the requested action (e.g., sent a transaction, created a file)
+- There are no more tools to call for this request
+
+**Do NOT call it if:**
+- You still need to gather more information
+- A transaction or action is pending confirmation
+- The user asked a follow-up question
+
+## Memory Tools
+
+You have three memory tools: `multi_memory_search`, `memory_get`, and `memory_store`.
+
+### Storing Memories (`memory_store`)
+
+Use `memory_store` to save important information for future sessions:
+
+```json
+{"tool": "memory_store", "content": "User prefers dark mode", "memory_type": "preference", "importance": 6}
+{"tool": "memory_store", "content": "Alice is a developer at Acme Corp", "memory_type": "entity", "entity_type": "person", "entity_name": "Alice", "importance": 7}
+{"tool": "memory_store", "content": "User's main wallet is 0x123...", "memory_type": "fact", "importance": 8}
 ```
-memory_search("moltbook") → No results
-// Move on - I don't have stored knowledge about this
+
+**When to store memories:**
+- User explicitly tells you something about themselves
+- Important preferences, settings, or configurations
+- Key facts about people, projects, or organizations
+- Commitments or tasks the user mentions
+
+**Memory types:** `fact`, `preference`, `long_term`, `task`, `entity`
+
+### Searching Memories (`multi_memory_search`, `memory_get`)
+
+Use `multi_memory_search` to search for multiple terms at once. This is more efficient than making separate calls.
+
+**CRITICAL: Search ONCE and move on.** If no results, accept it. Do NOT retry with variations.
+
+✅ **Good pattern** (efficient - search multiple terms at once):
+```json
+{"tool": "multi_memory_search", "queries": ["moltbook", "registration", "user preferences"]}
+```
+If no results → Move on. Don't have stored knowledge about this.
+
+❌ **Bad pattern** (wasteful - never do this):
+```
+multi_memory_search(["moltbook"]) → No results
+multi_memory_search(["moltbook registration"]) → No results  // STOP! Don't retry
+memory_get(entity_name="moltbook") → No results              // STOP! You already searched
 ```
 
 Memory searches are useful when:
@@ -118,5 +159,5 @@ Memory searches are useful when:
 
 Memory searches are NOT useful when:
 - The topic is new (nothing to remember)
-- You already got "No results" - don't retry with variations
+- You already got "No results" - DO NOT retry with variations
 - The information would come from external sources anyway

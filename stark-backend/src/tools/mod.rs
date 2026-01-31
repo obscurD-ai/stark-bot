@@ -23,10 +23,12 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::SetAgentSubtypeTool::new()));
     registry.register(Arc::new(builtin::AskUserTool::new()));
     registry.register(Arc::new(builtin::SayToUserTool::new()));
-    registry.register(Arc::new(builtin::MemorySearchTool::new()));
+    registry.register(Arc::new(builtin::MultiMemorySearchTool::new()));
     registry.register(Arc::new(builtin::MemoryGetTool::new()));
+    registry.register(Arc::new(builtin::MemoryStoreTool::new()));
     registry.register(Arc::new(builtin::ModifySoulTool::new()));
     registry.register(Arc::new(builtin::ApiKeysCheckTool::new()));
+    registry.register(Arc::new(builtin::TaskFullyCompletedTool::new()));
 
     // Web tools (shared)
     registry.register(Arc::new(builtin::WebFetchTool::new()));

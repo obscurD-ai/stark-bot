@@ -4,9 +4,9 @@ description: "Post tweets and interact with Twitter/X using Bearer token and cur
 version: 1.0.0
 author: starkbot
 homepage: https://developer.x.com/en/docs
-metadata: {"requires_auth": true, "clawdbot":{"emoji":"bird","requires":{"bins":["curl","jq"]}}}
-requires_binaries: [curl, jq]
+metadata: {"requires_auth": true, "clawdbot":{"emoji":"bird"}}
 tags: [twitter, x, social-media, posting, tweets]
+requires_tools: [api_keys_check, exec]
 ---
 
 # Twitter/X Integration

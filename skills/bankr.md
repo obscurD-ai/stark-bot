@@ -4,9 +4,9 @@ description: "Interact with Bankr - check token info, wallet balances, and use t
 version: 2.0.0
 author: starkbot
 homepage: https://bankr.bot
-metadata: {"requires_auth": true, "clawdbot":{"emoji":"🏦","requires":{"bins":["curl","jq"]}}}
-requires_binaries: [curl, jq]
+metadata: {"requires_auth": true, "clawdbot":{"emoji":"🏦"}}
 tags: [crypto, defi, bankr, bnkr, base, wallet, yield, token, agent]
+requires_tools: [api_keys_check, exec]
 ---
 
 # Bankr Integration

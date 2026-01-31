@@ -296,6 +296,42 @@ fn get_code_engineer_tools() -> Vec<ToolSpec> {
                 }),
             },
         },
+        // use_skill
+        ToolSpec {
+            tool_type: "function".to_string(),
+            function: ToolFunction {
+                name: "use_skill".to_string(),
+                description: "Load a skill's instructions. Skills provide step-by-step guidance for specific tasks. Call this BEFORE attempting tasks like moltbook operations, wallet queries, etc.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "skill_name": {
+                            "type": "string",
+                            "description": "Name of the skill to load (e.g., 'moltbook', 'local_wallet')"
+                        }
+                    },
+                    "required": ["skill_name"]
+                }),
+            },
+        },
+        // api_keys_check
+        ToolSpec {
+            tool_type: "function".to_string(),
+            function: ToolFunction {
+                name: "api_keys_check".to_string(),
+                description: "Check if a specific API key is configured. Returns whether the key exists and is set.".to_string(),
+                parameters: json!({
+                    "type": "object",
+                    "properties": {
+                        "key_name": {
+                            "type": "string",
+                            "description": "The name of the API key to check (e.g., 'MOLTBOOK_TOKEN', 'DISCORD_BOT_TOKEN')"
+                        }
+                    },
+                    "required": ["key_name"]
+                }),
+            },
+        },
         // discord_lookup
         ToolSpec {
             tool_type: "function".to_string(),
@@ -386,6 +422,8 @@ async fn execute_tool(name: &str, args: &Value, workspace: &Path) -> String {
         "git" => execute_git(args, workspace),
         "glob" => execute_glob(args, workspace),
         "grep" => execute_grep(args, workspace),
+        "use_skill" => execute_use_skill(args),
+        "api_keys_check" => execute_api_keys_check(args),
         "discord_lookup" => execute_discord_lookup(args).await,
         "discord" => execute_discord(args).await,
         _ => format!("Unknown tool: {}", name),
@@ -806,6 +844,66 @@ fn execute_grep(args: &Value, workspace: &Path) -> String {
     }
 }
 
+fn execute_use_skill(args: &Value) -> String {
+    let skill_name = args.get("skill_name").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Try to find the skill file
+    let skill_paths = [
+        format!("../skills/{}.md", skill_name),
+        format!("skills/{}.md", skill_name),
+        format!("./skills/{}.md", skill_name),
+    ];
+
+    for skill_path in &skill_paths {
+        if let Ok(content) = fs::read_to_string(skill_path) {
+            println!("   📚 Loaded skill: {} from {}", skill_name, skill_path);
+            return format!(
+                "# Skill Loaded: {}\n\n{}\n\n---\nFollow the instructions above to complete the task.",
+                skill_name, content
+            );
+        }
+    }
+
+    format!(
+        "Skill '{}' not found. Available skills can be found in the skills/ directory.\n\
+        Try listing skills with list_files on the skills directory.",
+        skill_name
+    )
+}
+
+fn execute_api_keys_check(args: &Value) -> String {
+    let key_name = args.get("key_name").and_then(|v| v.as_str()).unwrap_or("");
+
+    match std::env::var(key_name) {
+        Ok(val) if !val.is_empty() => {
+            // Mask the value for security
+            let masked = if val.len() > 8 {
+                format!("{}...{}", &val[..4], &val[val.len()-4..])
+            } else {
+                "****".to_string()
+            };
+            format!(
+                "✅ API key '{}' is configured.\nValue: {} (masked)\nLength: {} characters",
+                key_name, masked, val.len()
+            )
+        }
+        Ok(_) => format!(
+            "⚠️ API key '{}' exists but is empty.\nPlease set the value in your environment or .env file.",
+            key_name
+        ),
+        Err(_) => format!(
+            "❌ API key '{}' is NOT configured.\n\n\
+            To set this key:\n\
+            1. Add it to your .env file: {}=your_value_here\n\
+            2. Or export it: export {}=your_value_here\n\n\
+            For MOLTBOOK_TOKEN specifically:\n\
+            - Get a token from https://www.moltbook.com\n\
+            - Or use the self-registration API (see moltbook skill)",
+            key_name, key_name, key_name
+        ),
+    }
+}
+
 async fn execute_discord_lookup(args: &Value) -> String {
     let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
     let server_id = args.get("server_id").and_then(|v| v.as_str());
@@ -1054,7 +1152,31 @@ async fn execute_discord(args: &Value) -> String {
 fn get_system_prompt(workspace: &Path, skills: &[String]) -> String {
     format!(r#"You are an AI agent that can perform various tasks. Your workspace is: {}
 
+## ⚠️ CRITICAL: You MUST Call Tools ⚠️
+
+**ABSOLUTE RULE: NEVER respond to questions without calling tools first.**
+
+For ANY request about external services, APIs, registrations, balances, or data:
+1. **FIRST** - Call `use_skill` to load relevant instructions
+2. **THEN** - Call `api_keys_check` to verify required credentials exist
+3. **THEN** - Call the actual tools (e.g., `exec` with curl) to get real data
+4. **FINALLY** - Report ONLY what the tools actually returned
+
+### ❌ WRONG (will provide bad info):
+- User asks "are you registered on moltbook?" → Responding "I'm not registered" without checking
+- Saying "I don't have accounts" without calling tools
+
+### ✅ CORRECT:
+1. use_skill(skill_name="moltbook") - Load moltbook instructions
+2. api_keys_check(key_name="MOLTBOOK_TOKEN") - Check if token exists
+3. exec(command="curl ... /agents/me") - Get actual registration status
+4. Report the ACTUAL result from the tool
+
 ## Available Tools
+
+### Skill & Config Tools (USE FIRST!)
+- `use_skill` - Load detailed instructions for a task (skill_name). ALWAYS call this first!
+- `api_keys_check` - Check if an API key is configured (key_name)
 
 ### File Operations
 - `write_file` - Create or overwrite files (path, content)
@@ -1064,39 +1186,29 @@ fn get_system_prompt(workspace: &Path, skills: &[String]) -> String {
 - `grep` - Search in files
 
 ### System
-- `exec` - Run shell commands (command) - use for npm, cargo, pip, etc.
+- `exec` - Run shell commands (command) - use for curl, npm, cargo, pip, etc.
+  - For API calls: curl with $ENV_VAR for auth tokens
 - `git` - Git operations (operation: status/diff/log/add/commit/init, files, message, branch)
 
 ### Discord Integration
 - `discord_lookup` - Look up Discord servers and channels
-  - action: "list_servers" | "search_servers" | "list_channels" | "search_channels"
-  - server_id: required for channel operations
-  - query: search term for search operations
+- `discord` - Perform Discord actions (sendMessage, readMessages, react)
 
-- `discord` - Perform Discord actions
-  - action: "sendMessage" - Send a message
-    - to: "channel:<channel_id>" - Target channel
-    - content: Message text
-  - action: "readMessages" - Read messages from a channel
-    - channelId: Channel ID
-    - limit: Number of messages (default: 20)
-  - action: "react" - React to a message
-    - channelId, messageId, emoji
+## Skills Available: {}
 
-## How to Send a Discord Message
+## Workflow for Service Queries
 
-1. First use `discord_lookup` with action: "search_servers" to find the server by name
-2. Use `discord_lookup` with action: "search_channels" and the server_id to find the channel
-3. Use `discord` with action: "sendMessage", to: "channel:<id>", and your content
+When asked about any external service (Moltbook, Discord, GitHub, etc.):
 
-## Important
+1. `use_skill(skill_name="<service>")` - Get the instructions
+2. `api_keys_check(key_name="<TOKEN>")` - Verify credentials
+3. If token exists: `exec(command="curl ... -H 'Authorization: Bearer $TOKEN' ...")` - Make API call
+4. If token missing: Tell user how to configure it
 
-- All file paths are relative to the workspace
-- For Discord operations, always look up IDs first using discord_lookup
-- Use `exec` for running any shell command
-
-## Skills Available
-{}
+For Moltbook specifically:
+- Skill: "moltbook"
+- Token: "MOLTBOOK_TOKEN"
+- Check profile: curl -sf "https://www.moltbook.com/api/v1/agents/me" -H "Authorization: Bearer $MOLTBOOK_TOKEN"
 
 Accomplish what the user asks for. Use the available tools."#,
         workspace.display(),

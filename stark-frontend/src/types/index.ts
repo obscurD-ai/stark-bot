@@ -1,11 +1,12 @@
 // Message types
-export type MessageRole = 'user' | 'assistant' | 'system' | 'error' | 'command' | 'tool-indicator' | 'tool';
+export type MessageRole = 'user' | 'assistant' | 'system' | 'error' | 'command' | 'tool-indicator' | 'tool' | 'tool_call' | 'tool_result';
 
 export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
   timestamp: Date;
+  sessionId?: string;
 }
 
 // Gateway types

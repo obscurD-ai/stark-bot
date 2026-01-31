@@ -319,8 +319,11 @@ impl ExecutionTracker {
             "remember" | "memory_store" => {
                 ("Storing memory".to_string(), "Storing memory".to_string())
             }
-            "recall" | "memory_search" => {
-                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("...");
+            "recall" | "memory_search" | "multi_memory_search" => {
+                let query = args.get("query")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| args.get("queries").and_then(|v| v.as_array()).map(|_| "multiple queries"))
+                    .unwrap_or("...");
                 let short = if query.len() > 30 {
                     format!("{}...", &query[..27])
                 } else {

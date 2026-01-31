@@ -1,18 +1,28 @@
 ---
 name: swap
 description: "Swap ERC20 tokens on Base using 0x DEX aggregator via quoter.defirelay.com"
-version: 5.1.0
+version: 5.2.0
 author: starkbot
 homepage: https://0x.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"🔄"}}
 tags: [crypto, defi, swap, dex, base, trading, 0x]
+requires_tools: [web, x, token_lookup, register_set]
 ---
 
 # Token Swap Integration (0x via DeFi Relay)
 
-## IMPORTANT: ETH Must Be Wrapped First!
+## CRITICAL: Two Things That Will Cause Reverts
 
+### 1. ETH Must Be Wrapped First!
 When selling ETH, you MUST wrap it to WETH first. The swap always uses WETH, not native ETH.
+
+### 2. ALLOWANCE MUST BE SET Before Swapping!
+**This is the #1 cause of failed swaps.** Before executing any swap, you MUST:
+1. Check the current allowance for the sell token
+2. If allowance is insufficient, approve the swap contract (Permit2: `0x000000000022D473030F116dDEE9F6B43aC78BA3`)
+3. Only then execute the swap
+
+**WETH is especially prone to this issue** because after wrapping ETH, the freshly minted WETH has zero allowance!
 
 ---
 
@@ -55,32 +65,71 @@ preset: weth_deposit
 network: base
 ```
 
-### 5. Lookup buy token
+### 5. Check WETH Allowance for Permit2 (CRITICAL!)
+**After wrapping, freshly minted WETH has ZERO allowance. You MUST check and approve!**
+
+Set the token address for allowance check:
+```tool:register_set
+key: token_address
+value: "0x4200000000000000000000000000000000000006"
+```
+
+Set the spender to Permit2 contract:
+```tool:register_set
+key: spender_address
+value: "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+```
+
+Check current allowance:
+```tool:web3_function_call
+preset: erc20_allowance
+network: base
+call_only: true
+```
+
+### 6. Approve WETH if Allowance is Insufficient
+**If allowance is less than the swap amount, you MUST approve first!**
+
+Set a large approval amount (max uint256 for unlimited):
+```tool:register_set
+key: approve_amount
+value: "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+```
+
+Approve Permit2 to spend WETH:
+```tool:web3_function_call
+preset: erc20_approve
+network: base
+```
+
+**Wait for the approval transaction to confirm before proceeding!**
+
+### 7. Lookup buy token
 ```tool:token_lookup
 symbol: USDC
 cache_as: buy_token
 ```
 
-### 6. Set sell amount
+### 8. Set sell amount
 ```tool:register_set
 key: sell_amount
 value: "100000000000000"
 ```
 
-### 7. Get swap quote
+### 9. Get swap quote
 ```tool:x402_fetch
 preset: swap_quote
 network: base
 cache_as: swap_quote
 ```
 
-### 8. Get gas price
+### 10. Get gas price
 ```tool:x402_rpc
 preset: gas_price
 network: base
 ```
 
-### 9. Execute swap
+### 11. Execute swap
 ```tool:web3_tx
 from_register: swap_quote
 max_fee_per_gas: "<GAS_PRICE>"
@@ -115,32 +164,65 @@ call_only: true
 
 **Important:** Report the balance to the user. If insufficient, stop and inform them.
 
-### 2. Lookup buy token
+### 2. Check Allowance for Permit2 (CRITICAL!)
+**Before swapping any ERC20 token, you MUST check its allowance!**
+
+The token_address should already be set from step 1. Set the spender to Permit2:
+```tool:register_set
+key: spender_address
+value: "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+```
+
+Check current allowance:
+```tool:web3_function_call
+preset: erc20_allowance
+network: base
+call_only: true
+```
+
+### 3. Approve Token if Allowance is Insufficient
+**If allowance is less than the swap amount, you MUST approve first!**
+
+Set a large approval amount (max uint256 for unlimited):
+```tool:register_set
+key: approve_amount
+value: "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+```
+
+Approve Permit2 to spend the token:
+```tool:web3_function_call
+preset: erc20_approve
+network: base
+```
+
+**Wait for the approval transaction to confirm before proceeding!**
+
+### 4. Lookup buy token
 ```tool:token_lookup
 symbol: WETH
 cache_as: buy_token
 ```
 
-### 3. Set sell amount
+### 5. Set sell amount
 ```tool:register_set
 key: sell_amount
 value: "1000000"
 ```
 
-### 4. Get swap quote
+### 6. Get swap quote
 ```tool:x402_fetch
 preset: swap_quote
 network: base
 cache_as: swap_quote
 ```
 
-### 5. Get gas price
+### 7. Get gas price
 ```tool:x402_rpc
 preset: gas_price
 network: base
 ```
 
-### 6. Execute swap
+### 8. Execute swap
 ```tool:web3_tx
 from_register: swap_quote
 max_fee_per_gas: "<GAS_PRICE>"
@@ -184,7 +266,16 @@ For USDC (6 decimals):
 ### Always wrap ETH before swapping!
 If user says "swap ETH for X", you MUST:
 1. Wrap ETH to WETH first (using `weth_deposit` preset)
-2. Then swap WETH for X
+2. Check WETH allowance for Permit2
+3. Approve WETH if allowance is insufficient
+4. Then swap WETH for X
+
+### ALWAYS check and set allowance before swapping!
+**This prevents "transaction reverted" errors!** The swap contract (via Permit2) needs permission to spend your tokens:
+1. Check current allowance using `erc20_allowance` preset
+2. If allowance < swap amount, approve using `erc20_approve` preset
+3. The spender address is always Permit2: `0x000000000022D473030F116dDEE9F6B43aC78BA3`
+4. **WETH is especially prone to zero allowance after wrapping - always check!**
 
 ---
 
@@ -203,4 +294,6 @@ Use the `token_lookup` tool to check if a token is supported. The tool will retu
 | "Preset requires register 'X'" | Run the tool that sets register X first |
 | "Insufficient balance" | Check balance before swapping |
 | Swap fails with ETH | Make sure you wrapped ETH to WETH first! |
+| **TRANSACTION REVERTED (after wrapping WETH)** | **Check allowance! Freshly wrapped WETH has zero allowance. You MUST approve Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) before swapping!** |
+| **Transaction reverted / Insufficient allowance** | **The DEX cannot spend your tokens. Check `erc20_allowance` and run `erc20_approve` for the Permit2 contract if needed.** |
 | **402 Payment Required / Settlement error** | **Wait 30 seconds and retry the same `x402_fetch` call. This is a temporary payment relay issue that usually resolves on retry. Retry up to 3 times before giving up.** |

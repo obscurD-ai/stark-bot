@@ -1,15 +1,13 @@
+pub mod actix_ws;
 pub mod events;
 pub mod methods;
 pub mod protocol;
-pub mod server;
 
 pub use events::EventBroadcaster;
-pub use server::GatewayServer;
 
 use crate::channels::ChannelManager;
 use crate::db::Database;
 use crate::tools::ToolRegistry;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 /// Main Gateway struct that owns all channel connections and exposes WebSocket RPC
@@ -54,21 +52,6 @@ impl Gateway {
             db,
             channel_manager,
             broadcaster,
-        }
-    }
-
-    /// Start the Gateway WebSocket server
-    pub async fn start(&self, port: u16) {
-        // NOTE: Gateway has no authentication - restrict access via firewall/Docker network
-        let addr: SocketAddr = format!("0.0.0.0:{}", port).parse().unwrap();
-        let server = GatewayServer::new(
-            self.db.clone(),
-            self.channel_manager.clone(),
-            self.broadcaster.clone(),
-        );
-
-        if let Err(e) = server.run(addr).await {
-            log::error!("Gateway server error: {}", e);
         }
     }
 

@@ -24,11 +24,11 @@ mod x402;
 mod eip8004;
 mod hooks;
 
-use channels::MessageDispatcher;
+use channels::{ChannelManager, MessageDispatcher};
 use config::Config;
 use db::Database;
 use execution::ExecutionTracker;
-use gateway::Gateway;
+use gateway::{events::EventBroadcaster, Gateway};
 use scheduler::{Scheduler, SchedulerConfig};
 use skills::SkillRegistry;
 use tools::ToolRegistry;
@@ -42,6 +42,8 @@ pub struct AppState {
     pub dispatcher: Arc<MessageDispatcher>,
     pub execution_tracker: Arc<ExecutionTracker>,
     pub scheduler: Arc<Scheduler>,
+    pub channel_manager: Arc<ChannelManager>,
+    pub broadcaster: Arc<EventBroadcaster>,
 }
 
 /// SPA fallback handler - serves index.html for client-side routing
@@ -78,7 +80,6 @@ async fn main() -> std::io::Result<()> {
 
     let config = Config::from_env();
     let port = config.port;
-    let gateway_port = config.gateway_port;
 
     log::info!("Initializing database at {}", config.database_url);
     let db = Database::new(&config.database_url).expect("Failed to initialize database");
@@ -123,11 +124,9 @@ async fn main() -> std::io::Result<()> {
         Some(skill_registry.clone()),
     ));
 
-    // Start Gateway WebSocket server
-    let gw = gateway.clone();
-    tokio::spawn(async move {
-        gw.start(gateway_port).await;
-    });
+    // Get broadcaster and channel_manager for the /ws route
+    let broadcaster = gateway.broadcaster();
+    let channel_manager = gateway.channel_manager();
 
     // Start enabled channels
     log::info!("Starting enabled channels");
@@ -165,7 +164,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     log::info!("Starting StarkBot server on port {}", port);
-    log::info!("Gateway WebSocket server on port {}", gateway_port);
+    log::info!("WebSocket Gateway available at /ws");
     log::info!("Scheduler started with cron and heartbeat support");
     if !frontend_dist.is_empty() {
         log::info!("Serving frontend from: {}", frontend_dist);
@@ -176,6 +175,8 @@ async fn main() -> std::io::Result<()> {
     let disp = dispatcher.clone();
     let exec_tracker = execution_tracker.clone();
     let sched = scheduler.clone();
+    let bcast = broadcaster.clone();
+    let chan_mgr = channel_manager.clone();
     let frontend_dist = frontend_dist.to_string();
 
     HttpServer::new(move || {
@@ -195,8 +196,14 @@ async fn main() -> std::io::Result<()> {
                 dispatcher: Arc::clone(&disp),
                 execution_tracker: Arc::clone(&exec_tracker),
                 scheduler: Arc::clone(&sched),
+                channel_manager: Arc::clone(&chan_mgr),
+                broadcaster: Arc::clone(&bcast),
             }))
             .app_data(web::Data::new(Arc::clone(&sched)))
+            // WebSocket data for /ws route
+            .app_data(web::Data::new(Arc::clone(&db)))
+            .app_data(web::Data::new(Arc::clone(&chan_mgr)))
+            .app_data(web::Data::new(Arc::clone(&bcast)))
             .wrap(Logger::default())
             .wrap(cors)
             .configure(controllers::health::config)
@@ -216,7 +223,9 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::payments::config)
             .configure(controllers::eip8004::config)
             .configure(controllers::files::config)
-            .configure(controllers::intrinsic::config);
+            .configure(controllers::intrinsic::config)
+            // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
+            .route("/ws", web::get().to(gateway::actix_ws::ws_handler));
 
         // Serve static files only if frontend dist exists
         if !frontend_dist.is_empty() {

@@ -27,19 +27,10 @@ export class GatewayClient {
       this.url = url;
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // In development (Vite dev server on port 5173), use the /ws proxy path
-      // In production (served from backend on port 8080), connect directly to gateway port
-      const isDev = window.location.port === '5173';
-      if (isDev) {
-        // Use Vite proxy - this forwards /ws to ws://localhost:8081
-        this.url = `${protocol}//${window.location.host}/ws`;
-        console.log('[Gateway] Using Vite proxy for WebSocket:', this.url);
-      } else {
-        // Direct connection to gateway (production or when served from backend)
-        const gatewayPort = '8081';
-        this.url = `${protocol}//${window.location.hostname}:${gatewayPort}`;
-        console.log('[Gateway] Direct WebSocket connection:', this.url);
-      }
+      // Always use /ws path - works in both dev (Vite proxy) and production (Actix route)
+      // This is required for platforms like DigitalOcean App Platform that only expose one port
+      this.url = `${protocol}//${window.location.host}/ws`;
+      console.log('[Gateway] WebSocket connection:', this.url);
     }
   }
 

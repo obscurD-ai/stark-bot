@@ -22,8 +22,8 @@ dotenv = "0.15"
 reqwest = { version = "0.11", features = ["json"] }
 async-trait = "0.1"
 
-# Gateway WebSocket server
-tokio-tungstenite = "0.21"
+# Gateway WebSocket server (integrated with Actix)
+actix-ws = "0.3"
 
 # Cancellation tokens for async task management
 tokio-util = "0.7"

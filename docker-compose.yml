@@ -4,8 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"   # HTTP API + Frontend
-      - "8081:8081"   # Gateway WebSocket
+      - "8080:8080"   # HTTP API + Frontend + WebSocket Gateway (/ws)
     env_file:
       - .env
     volumes:

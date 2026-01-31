@@ -5,7 +5,6 @@ pub mod env_vars {
     pub const LOGIN_ADMIN_PUBLIC_ADDRESS: &str = "LOGIN_ADMIN_PUBLIC_ADDRESS";
     pub const BURNER_WALLET_PRIVATE_KEY: &str = "BURNER_WALLET_BOT_PRIVATE_KEY";
     pub const PORT: &str = "PORT";
-    pub const GATEWAY_PORT: &str = "GATEWAY_PORT";
     pub const DATABASE_URL: &str = "DATABASE_URL";
     pub const WORKSPACE_DIR: &str = "STARK_WORKSPACE_DIR";
     pub const SKILLS_DIR: &str = "STARK_SKILLS_DIR";
@@ -22,7 +21,6 @@ pub mod env_vars {
 /// Default values
 pub mod defaults {
     pub const PORT: u16 = 8080;
-    pub const GATEWAY_PORT: u16 = 8081;
     pub const DATABASE_URL: &str = "./.db/stark.db";
     pub const WORKSPACE_DIR: &str = "./workspace";
     pub const SKILLS_DIR: &str = "./skills";
@@ -48,7 +46,6 @@ pub struct Config {
     pub login_admin_public_address: String,
     pub burner_wallet_private_key: Option<String>,
     pub port: u16,
-    pub gateway_port: u16,
     pub database_url: String,
 }
 
@@ -62,10 +59,6 @@ impl Config {
                 .unwrap_or_else(|_| defaults::PORT.to_string())
                 .parse()
                 .expect("PORT must be a valid number"),
-            gateway_port: env::var(env_vars::GATEWAY_PORT)
-                .unwrap_or_else(|_| defaults::GATEWAY_PORT.to_string())
-                .parse()
-                .expect("GATEWAY_PORT must be a valid number"),
             database_url: env::var(env_vars::DATABASE_URL)
                 .unwrap_or_else(|_| defaults::DATABASE_URL.to_string()),
         }

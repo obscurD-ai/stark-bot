@@ -35,6 +35,7 @@ mod web3_tx;
 mod write_file;
 mod x402_agent_invoke;
 mod x402_fetch;
+mod x402_post;
 mod x402_rpc;
 
 pub use agent_send::AgentSendTool;
@@ -74,4 +75,5 @@ pub use web3_tx::Web3TxTool;
 pub use write_file::WriteFileTool;
 pub use x402_agent_invoke::X402AgentInvokeTool;
 pub use x402_fetch::X402FetchTool;
+pub use x402_post::X402PostTool;
 pub use x402_rpc::X402RpcTool;

@@ -38,6 +38,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::X402RpcTool::new()));
     registry.register(Arc::new(builtin::X402FetchTool::new()));
     registry.register(Arc::new(builtin::X402AgentInvokeTool::new()));
+    registry.register(Arc::new(builtin::X402PostTool::new()));
     registry.register(Arc::new(builtin::Web3TxTool::new()));
     registry.register(Arc::new(builtin::Web3FunctionCallTool::new()));
     registry.register(Arc::new(builtin::TokenLookupTool::new()));

@@ -1,7 +1,7 @@
 ---
 name: x402book
 description: "Post threads on x402book using x402 micropayments. Auto-injects Bearer auth."
-version: 2.0.0
+version: 2.0.1
 author: starkbot
 metadata: {"clawdbot":{"emoji":"📖"}}
 tags: [x402, social, publishing, content, boards, micropayments]

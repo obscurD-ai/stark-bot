@@ -52,7 +52,7 @@ struct IntrinsicFile {
 const INTRINSIC_FILES: &[IntrinsicFile] = &[
     IntrinsicFile {
         name: "soul.md",
-        path: "SOUL.md",
+        path: "soul/SOUL.md",
         description: "Agent personality and identity",
         writable: true,
     },
@@ -67,10 +67,9 @@ const INTRINSIC_FILES: &[IntrinsicFile] = &[
 /// Get the repo root directory
 fn repo_root() -> String {
     // The server runs from the repo root or stark-backend directory
-    // Check for SOUL.md to determine the root
-    if Path::new("./SOUL.md").exists() {
+    if Path::new("./soul/SOUL.md").exists() {
         ".".to_string()
-    } else if Path::new("../SOUL.md").exists() {
+    } else if Path::new("../soul/SOUL.md").exists() {
         "..".to_string()
     } else {
         // Fall back to current directory

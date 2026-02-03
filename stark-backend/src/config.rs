@@ -212,18 +212,22 @@ pub fn initialize_workspace() -> std::io::Result<()> {
     let soul_path = Path::new(&soul);
     std::fs::create_dir_all(soul_path)?;
 
-    // Copy SOUL.md from repo root to soul directory on every boot
-    // This ensures the agent always starts with the user's current version
+    // Copy SOUL.md from repo root to soul directory only if it doesn't exist
+    // This preserves agent modifications across restarts
     let soul_document = soul_path.join("SOUL.md");
-    if let Some(original_soul) = find_original_soul() {
-        log::info!(
-            "Copying SOUL.md from {:?} to {:?}",
-            original_soul,
-            soul_document
-        );
-        std::fs::copy(&original_soul, &soul_document)?;
+    if !soul_document.exists() {
+        if let Some(original_soul) = find_original_soul() {
+            log::info!(
+                "Initializing SOUL.md from {:?} to {:?}",
+                original_soul,
+                soul_document
+            );
+            std::fs::copy(&original_soul, &soul_document)?;
+        } else {
+            log::warn!("Original SOUL.md not found - soul directory will not have a soul document");
+        }
     } else {
-        log::warn!("Original SOUL.md not found - soul directory will not have a soul document");
+        log::info!("Using existing soul document at {:?}", soul_document);
     }
 
     Ok(())

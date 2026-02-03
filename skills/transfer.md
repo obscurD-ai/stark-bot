@@ -1,7 +1,7 @@
 ---
 name: transfer
 description: "Transfer (Send) ETH or ERC20 tokens on Base/Ethereum using the burner wallet"
-version: 3.1.0
+version: 3.2.0
 author: starkbot
 homepage: https://basescan.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"💸"}}
@@ -120,6 +120,31 @@ uuid: <UUID_FROM_PREVIOUS_STEP>
 ---
 
 ## Transfer ERC20 Tokens
+
+### ⚠️ CRITICAL: Understanding User Amounts vs Raw Units
+
+When a user says "send 1 STARKBOT" or "transfer 100 USDC", they mean **whole/human-readable units**, NOT raw blockchain units.
+
+**You MUST convert user amounts to raw units based on token decimals:**
+
+- **User says "1 token"** → Send `1 * 10^decimals` raw units
+- **User says "100 tokens"** → Send `100 * 10^decimals` raw units
+
+| User Request | Token Decimals | Raw Amount to Send |
+|--------------|----------------|-------------------|
+| "Send 1 STARKBOT" | 18 | `1000000000000000000` (1e18) |
+| "Send 5 ETH" | 18 | `5000000000000000000` (5e18) |
+| "Send 100 USDC" | 6 | `100000000` (100e6) |
+| "Send 0.5 cbBTC" | 8 | `50000000` (0.5e8) |
+
+**Example:** If user says "send 1 Starkbot" and STARKBOT has 18 decimals:
+- User means: 1 whole STARKBOT token
+- Raw units: 1 × 10^18 = `1000000000000000000`
+- This is what goes in the `params` array
+
+**NEVER send raw numbers the user provides directly** - always multiply by 10^decimals first!
+
+---
 
 For ERC20 transfers, use `web3_function_call` directly (it handles encoding):
 

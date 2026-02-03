@@ -4,6 +4,7 @@
 //! - Ethereum wallet addresses (0x...)
 //! - Token symbols from config/tokens.ron
 //! - Network names from config/networks.ron
+//! - Numeric values (amounts, quantities, etc.)
 //!
 //! These extracted terms are stored in the context bank and made available
 //! to the agent in the system context.
@@ -116,6 +117,12 @@ impl ContextBank {
             parts.push(format!("Networks: {}", network_list.join(", ")));
         }
 
+        let numbers: Vec<_> = items.iter().filter(|i| i.item_type == "number").collect();
+        if !numbers.is_empty() {
+            let number_list: Vec<_> = numbers.iter().map(|n| n.value.as_str()).collect();
+            parts.push(format!("Numbers: {}", number_list.join(", ")));
+        }
+
         if parts.is_empty() {
             None
         } else {
@@ -206,6 +213,27 @@ pub fn scan_input(text: &str) -> Vec<ContextBankItem> {
         }
     }
 
+    // Scan for numeric values (integers, decimals, with optional commas)
+    // Matches: 1, 100, 1000, 1,000, 100000, 2500000, 0.5, 1.25, etc.
+    // Excludes numbers that are part of hex addresses (handled above)
+    let number_regex = Regex::new(r"\b(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?\b").unwrap();
+    for cap in number_regex.find_iter(text) {
+        let num_str = cap.as_str();
+        // Skip if this looks like it's part of a hex address (we already captured those)
+        // Also skip very short numbers (single digit) that are likely noise
+        let clean_num = num_str.replace(',', "");
+        if let Ok(num) = clean_num.parse::<f64>() {
+            // Only capture numbers >= 1 to avoid noise from small fragments
+            if num >= 1.0 {
+                items.push(ContextBankItem {
+                    value: clean_num,
+                    item_type: "number".to_string(),
+                    label: None,
+                });
+            }
+        }
+    }
+
     // Deduplicate
     let mut seen = HashSet::new();
     items.retain(|item| {
@@ -237,6 +265,27 @@ mod tests {
 
         let addresses: Vec<_> = items.iter().filter(|i| i.item_type == "eth_address").collect();
         assert_eq!(addresses.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_numbers() {
+        let text = "Send 100000 tokens, or maybe 2500000 or even 1 token";
+        let items = scan_input(text);
+
+        let numbers: Vec<_> = items.iter().filter(|i| i.item_type == "number").collect();
+        assert!(numbers.len() >= 3);
+        assert!(numbers.iter().any(|n| n.value == "100000"));
+        assert!(numbers.iter().any(|n| n.value == "2500000"));
+        assert!(numbers.iter().any(|n| n.value == "1"));
+    }
+
+    #[test]
+    fn test_scan_numbers_with_commas() {
+        let text = "Transfer 1,000,000 USDC";
+        let items = scan_input(text);
+
+        let numbers: Vec<_> = items.iter().filter(|i| i.item_type == "number").collect();
+        assert!(numbers.iter().any(|n| n.value == "1000000"));
     }
 
     #[test]

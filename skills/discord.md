@@ -1,7 +1,7 @@
 ---
 name: discord
 description: "Control Discord: send messages, react, post stickers/emojis, run polls, manage threads/pins, fetch permissions/member/role/channel info, handle moderation."
-version: 2.1.0
+version: 2.2.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🎮"}}
 tags: [discord, social, messaging, communication, social-media]
@@ -124,6 +124,33 @@ channelId: "123"
 
 When a user says "tip @someone X TOKEN", follow these steps:
 
+### Context Bank Integration
+
+The **Context Bank** automatically extracts key information from user messages:
+- **Addresses** (0x...) → Available for recipient lookups
+- **Token symbols** (USDC, STARKBOT, etc.) → Use with `token_lookup`
+- **Numbers** (1, 100, 2500000) → The user's intended amount
+
+Check the context bank in your system context for pre-extracted values before asking the user to repeat themselves.
+
+### ⚠️ CRITICAL: User Amounts vs Raw Units
+
+When a user says "tip @jimmy 1 STARKBOT", they mean **1 whole token**, NOT 1 raw unit!
+
+**You MUST convert user amounts to raw units based on token decimals:**
+
+| User Request | Token Decimals | Raw Amount to Send |
+|--------------|----------------|-------------------|
+| "tip 1 STARKBOT" | 18 | `1000000000000000000` (1e18) |
+| "tip 100 USDC" | 6 | `100000000` (100e6) |
+| "tip 0.5 ETH" | 18 | `500000000000000000` (0.5e18) |
+
+**Formula:** `raw_amount = user_amount × 10^decimals`
+
+**NEVER use the user's number directly** - always multiply by 10^decimals!
+
+---
+
 ### Step 1: Resolve the Discord mention to a public address
 
 ```tool:discord_resolve_user
@@ -134,36 +161,57 @@ This returns the user's registered public address (if they have one). Users regi
 
 **If the user is not registered**, inform them they need to register first.
 
-### Step 2: Transfer tokens to the resolved address
+### Step 2: Look up the token (use context bank values)
 
-Use the transfer skill to send tokens. For ERC20 tokens:
+```tool:token_lookup
+symbol: "STARKBOT"
+network: base
+cache_as: token_address
+```
+
+This returns the token address and **decimals** (crucial for conversion).
+
+### Step 3: Transfer tokens to the resolved address
+
+Convert the user's amount to raw units, then transfer:
 
 ```tool:web3_function_call
 abi: erc20
 contract: "<TOKEN_ADDRESS>"
 function: transfer
-params: ["<RESOLVED_ADDRESS>", "<AMOUNT_IN_SMALLEST_UNIT>"]
+params: ["<RESOLVED_ADDRESS>", "<AMOUNT_IN_RAW_UNITS>"]
 network: base
 ```
 
-### Complete Example: "tip @jimmy 100 USDC"
+### Complete Example: "tip @jimmy 1 STARKBOT"
 
-1. Resolve @jimmy:
+1. **Context bank provides:** number=1, token=STARKBOT
+
+2. Resolve @jimmy:
 ```tool:discord_resolve_user
 user_mention: "<@jimmy's_user_id>"
 ```
 Response: `{"public_address": "0x04abc...", "registered": true}`
 
-2. Transfer 100 USDC (6 decimals = 100000000):
+3. Look up STARKBOT:
+```tool:token_lookup
+symbol: "STARKBOT"
+network: base
+```
+Response: `{"address": "0x1234...", "decimals": 18}`
+
+4. **Convert amount:** 1 × 10^18 = `1000000000000000000`
+
+5. Transfer:
 ```tool:web3_function_call
 abi: erc20
-contract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+contract: "0x1234..."
 function: transfer
-params: ["0x04abc...", "100000000"]
+params: ["0x04abc...", "1000000000000000000"]
 network: base
 ```
 
-3. Confirm to the user: "Sent 100 USDC to @jimmy (0x04abc...)"
+6. Confirm: "Sent 1 STARKBOT to @jimmy (0x04abc...)"
 
 ### Common Token Addresses (Base)
 
@@ -172,6 +220,7 @@ network: base
 | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | 6 |
 | WETH | `0x4200000000000000000000000000000000000006` | 18 |
 | BNKR | `0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b` | 18 |
+| STARKBOT | Use `token_lookup` | 18 |
 
 ## Finding Servers and Channels by Name
 

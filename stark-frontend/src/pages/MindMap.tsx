@@ -55,6 +55,8 @@ export default function MindMap() {
   // Heartbeat toggle state
   const [heartbeatEnabled, setHeartbeatEnabled] = useState(false);
   const [heartbeatLoading, setHeartbeatLoading] = useState(false);
+  const [nextBeatAt, setNextBeatAt] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<string | null>(null);
 
   // Load graph data
   const loadGraph = useCallback(async () => {
@@ -87,6 +89,7 @@ export default function MindMap() {
       const config = await getHeartbeatConfig();
       if (config) {
         setHeartbeatEnabled(config.enabled);
+        setNextBeatAt(config.next_beat_at || null);
       }
     } catch (e) {
       console.error('Failed to load heartbeat config:', e);
@@ -98,8 +101,9 @@ export default function MindMap() {
     setHeartbeatLoading(true);
     try {
       const newEnabled = !heartbeatEnabled;
-      await updateHeartbeatConfig({ enabled: newEnabled });
+      const config = await updateHeartbeatConfig({ enabled: newEnabled });
       setHeartbeatEnabled(newEnabled);
+      setNextBeatAt(config.next_beat_at || null);
     } catch (e) {
       console.error('Failed to toggle heartbeat:', e);
     } finally {
@@ -112,6 +116,44 @@ export default function MindMap() {
     loadHeartbeatSessions();
     loadHeartbeatConfig();
   }, [loadGraph, loadHeartbeatSessions, loadHeartbeatConfig]);
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (!nextBeatAt || !heartbeatEnabled) {
+      setCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = new Date().getTime();
+      const target = new Date(nextBeatAt).getTime();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setCountdown('soon...');
+        // Refresh config to get new next_beat_at
+        loadHeartbeatConfig();
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+      if (hours > 0) {
+        setCountdown(`${hours}h ${minutes}m ${seconds}s`);
+      } else if (minutes > 0) {
+        setCountdown(`${minutes}m ${seconds}s`);
+      } else {
+        setCountdown(`${seconds}s`);
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+
+    return () => clearInterval(interval);
+  }, [nextBeatAt, heartbeatEnabled, loadHeartbeatConfig]);
 
   // Handle click on node to create child
   const handleNodeClick = useCallback(async (node: D3Node) => {
@@ -425,15 +467,26 @@ export default function MindMap() {
         <div>
           <h1 className="text-xl font-semibold text-white">Mind Map</h1>
           <p className="text-sm text-gray-400">
-            Click a node to add child. Right-click to edit. Drag to reposition. Scroll to zoom.
+            Add nodes to specify random actions to be performed on heartbeat pulse.
           </p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <Heart
-              size={16}
-              className={heartbeatEnabled ? 'text-red-500 fill-red-500' : 'text-gray-500'}
-            />
+            {countdown && heartbeatEnabled && (
+              <span className="text-sm text-gray-400" title="Time to next pulse">
+                {countdown}
+              </span>
+            )}
+            <button
+              onClick={() => navigate('/bot-settings#heartbeat')}
+              className="group cursor-pointer"
+              title="Configure heartbeat"
+            >
+              <Heart
+                size={16}
+                className={`${heartbeatEnabled ? 'text-red-500 fill-red-500' : 'text-gray-500'} group-hover:animate-heartbeat`}
+              />
+            </button>
             <button
               onClick={handleHeartbeatToggle}
               disabled={heartbeatLoading}
@@ -448,9 +501,6 @@ export default function MindMap() {
                 }`}
               />
             </button>
-          </div>
-          <div className="text-sm text-gray-500">
-            {nodes.length} nodes, {connections.length} connections
           </div>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -470,6 +520,11 @@ export default function MindMap() {
             className="w-full h-full"
             style={{ background: '#000' }}
           />
+
+          {/* Stats */}
+          <div className="absolute bottom-2 right-2 text-xs text-gray-600">
+            {nodes.length} nodes, {connections.length} connections
+          </div>
 
           {/* Hover Tooltip */}
           {hoveredNode && (

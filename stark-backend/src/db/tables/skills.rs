@@ -98,8 +98,8 @@ impl Database {
         let tags_json = serde_json::to_string(&skill.tags).unwrap_or_default();
 
         conn.execute(
-            "INSERT INTO skills (name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+            "INSERT INTO skills (name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
              ON CONFLICT(name) DO UPDATE SET
                 description = excluded.description,
                 body = excluded.body,
@@ -111,6 +111,7 @@ impl Database {
                 requires_binaries = excluded.requires_binaries,
                 arguments = excluded.arguments,
                 tags = excluded.tags,
+                subagent_type = excluded.subagent_type,
                 updated_at = excluded.updated_at",
             rusqlite::params![
                 skill.name,
@@ -125,6 +126,7 @@ impl Database {
                 requires_binaries_json,
                 arguments_json,
                 tags_json,
+                skill.subagent_type,
                 now
             ],
         )?;
@@ -136,7 +138,7 @@ impl Database {
     pub fn get_skill(&self, name: &str) -> SqliteResult<Option<DbSkill>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at
+            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at
              FROM skills WHERE name = ?1"
         )?;
 
@@ -151,7 +153,7 @@ impl Database {
     pub fn get_skill_by_id(&self, id: i64) -> SqliteResult<Option<DbSkill>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at
+            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at
              FROM skills WHERE id = ?1"
         )?;
 
@@ -166,7 +168,7 @@ impl Database {
     pub fn get_enabled_skill_by_name(&self, name: &str) -> SqliteResult<Option<DbSkill>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at
+            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at
              FROM skills WHERE name = ?1 AND enabled = 1 LIMIT 1"
         )?;
 
@@ -181,7 +183,7 @@ impl Database {
     pub fn list_skills(&self) -> SqliteResult<Vec<DbSkill>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at
+            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at
              FROM skills ORDER BY name"
         )?;
 
@@ -197,7 +199,7 @@ impl Database {
     pub fn list_enabled_skills(&self) -> SqliteResult<Vec<DbSkill>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, created_at, updated_at
+            "SELECT id, name, description, body, version, author, homepage, metadata, enabled, requires_tools, requires_binaries, arguments, tags, subagent_type, created_at, updated_at
              FROM skills WHERE enabled = 1 ORDER BY name"
         )?;
 
@@ -251,8 +253,9 @@ impl Database {
             requires_binaries: serde_json::from_str(&requires_binaries_str).unwrap_or_default(),
             arguments: serde_json::from_str(&arguments_str).unwrap_or_default(),
             tags: serde_json::from_str(&tags_str).unwrap_or_default(),
-            created_at: row.get(13)?,
-            updated_at: row.get(14)?,
+            subagent_type: row.get::<_, Option<String>>(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
         })
     }
 

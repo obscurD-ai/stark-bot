@@ -1,431 +1,605 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
-  Trash2,
   Search,
-  Filter,
-  Download,
-  Edit2,
-  Check,
-  X,
-  ChevronDown,
-  Merge,
-  BarChart3,
+  Calendar,
+  Brain,
   Clock,
   User,
-  Tag,
-  Star,
+  FolderOpen,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  Plus,
+  X,
 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import {
-  getMemoriesFiltered,
-  deleteMemory,
-  updateMemory,
-  mergeMemories,
-  getMemoryStats,
-  exportMemories,
-  searchMemories,
-  MemoryInfo,
-  MemoryStats,
-  ListMemoriesParams,
-} from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 
-// Memory type labels and colors
-const MEMORY_TYPES = {
-  daily_log: { label: 'Daily Log', color: 'bg-blue-500/20 text-blue-400' },
-  long_term: { label: 'Long Term', color: 'bg-purple-500/20 text-purple-400' },
-  session_summary: { label: 'Session', color: 'bg-gray-500/20 text-gray-400' },
-  compaction: { label: 'Compaction', color: 'bg-orange-500/20 text-orange-400' },
-  preference: { label: 'Preference', color: 'bg-green-500/20 text-green-400' },
-  fact: { label: 'Fact', color: 'bg-cyan-500/20 text-cyan-400' },
-  entity: { label: 'Entity', color: 'bg-yellow-500/20 text-yellow-400' },
-  task: { label: 'Task', color: 'bg-red-500/20 text-red-400' },
-};
+// ============================================================================
+// API Types (matching backend)
+// ============================================================================
 
-interface MemoryCardProps {
-  memory: MemoryInfo;
-  isSelected: boolean;
-  isEditing: boolean;
-  onSelect: () => void;
-  onEdit: () => void;
-  onSave: (updates: Partial<MemoryInfo>) => void;
-  onCancel: () => void;
-  onDelete: () => void;
+interface MemoryFile {
+  path: string;
+  name: string;
+  file_type: 'daily_log' | 'long_term' | 'unknown';
+  date: string | null;
+  identity_id: string | null;
+  size: number;
+  modified: string | null;
 }
 
-function MemoryCard({
-  memory,
-  isSelected,
-  isEditing,
-  onSelect,
-  onEdit,
-  onSave,
-  onCancel,
-  onDelete,
-}: MemoryCardProps) {
-  const [editContent, setEditContent] = useState(memory.content);
-  const [editImportance, setEditImportance] = useState(memory.importance);
+interface ListFilesResponse {
+  success: boolean;
+  files: MemoryFile[];
+  error?: string;
+}
 
-  useEffect(() => {
-    setEditContent(memory.content);
-    setEditImportance(memory.importance);
-  }, [memory, isEditing]);
+interface ReadFileResponse {
+  success: boolean;
+  path: string;
+  content?: string;
+  file_type?: string;
+  date?: string;
+  identity_id?: string;
+  error?: string;
+}
 
-  const typeConfig = MEMORY_TYPES[memory.memory_type as keyof typeof MEMORY_TYPES] || {
-    label: memory.memory_type,
-    color: 'bg-slate-500/20 text-slate-400',
+interface SearchResult {
+  file_path: string;
+  snippet: string;
+  score: number;
+}
+
+interface SearchResponse {
+  success: boolean;
+  query: string;
+  results: SearchResult[];
+  error?: string;
+}
+
+interface DateRange {
+  oldest: string;
+  newest: string;
+}
+
+interface MemoryStats {
+  total_files: number;
+  daily_log_count: number;
+  long_term_count: number;
+  identity_count: number;
+  identities: string[];
+  date_range: DateRange | null;
+}
+
+interface StatsResponse {
+  success: boolean;
+  stats: MemoryStats;
+  error?: string;
+}
+
+// ============================================================================
+// API Functions
+// ============================================================================
+
+async function getMemoryFiles(): Promise<ListFilesResponse> {
+  return apiFetch('/memory/files');
+}
+
+async function readMemoryFile(path: string): Promise<ReadFileResponse> {
+  return apiFetch(`/memory/file?path=${encodeURIComponent(path)}`);
+}
+
+async function searchMemory(query: string, limit = 20): Promise<SearchResponse> {
+  return apiFetch(`/memory/search?query=${encodeURIComponent(query)}&limit=${limit}`);
+}
+
+async function getMemoryStats(): Promise<StatsResponse> {
+  return apiFetch('/memory/stats');
+}
+
+async function getDailyLog(date?: string, identityId?: string): Promise<ReadFileResponse> {
+  const params = new URLSearchParams();
+  if (date) params.set('date', date);
+  if (identityId) params.set('identity_id', identityId);
+  const query = params.toString();
+  return apiFetch(`/memory/daily${query ? `?${query}` : ''}`);
+}
+
+async function reindexMemory(): Promise<{ success: boolean; message?: string; error?: string }> {
+  return apiFetch('/memory/reindex', { method: 'POST' });
+}
+
+async function appendToDailyLog(content: string, identityId?: string): Promise<{ success: boolean; error?: string }> {
+  return apiFetch('/memory/daily', {
+    method: 'POST',
+    body: JSON.stringify({ content, identity_id: identityId }),
+  });
+}
+
+async function appendToLongTerm(content: string, identityId?: string): Promise<{ success: boolean; error?: string }> {
+  return apiFetch('/memory/long-term', {
+    method: 'POST',
+    body: JSON.stringify({ content, identity_id: identityId }),
+  });
+}
+
+// ============================================================================
+// Components
+// ============================================================================
+
+type ViewMode = 'files' | 'calendar' | 'search';
+
+function FileTypeIcon({ type }: { type: string }) {
+  if (type === 'long_term') {
+    return <Brain className="w-4 h-4 text-purple-400" />;
+  }
+  if (type === 'daily_log') {
+    return <Calendar className="w-4 h-4 text-blue-400" />;
+  }
+  return <FileText className="w-4 h-4 text-slate-400" />;
+}
+
+function CalendarView({
+  files,
+  selectedDate,
+  onSelectDate,
+}: {
+  files: MemoryFile[];
+  selectedDate: string | null;
+  onSelectDate: (date: string) => void;
+}) {
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+
+  // Get dates with entries
+  const datesWithEntries = useMemo(() => {
+    const dates = new Set<string>();
+    files.forEach((f) => {
+      if (f.date) dates.add(f.date);
+    });
+    return dates;
+  }, [files]);
+
+  // Generate calendar days
+  const calendarDays = useMemo(() => {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startPadding = firstDay.getDay();
+    const totalDays = lastDay.getDate();
+
+    const days: { date: string | null; day: number | null; hasEntry: boolean }[] = [];
+
+    // Padding for days before the 1st
+    for (let i = 0; i < startPadding; i++) {
+      days.push({ date: null, day: null, hasEntry: false });
+    }
+
+    // Actual days
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        date: dateStr,
+        day: d,
+        hasEntry: datesWithEntries.has(dateStr),
+      });
+    }
+
+    return days;
+  }, [currentMonth, datesWithEntries]);
+
+  const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const prevMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString();
+  const nextMonth = () => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
   };
 
-  const handleSave = () => {
-    onSave({
-      content: editContent !== memory.content ? editContent : undefined,
-      importance: editImportance !== memory.importance ? editImportance : undefined,
+  const today = new Date().toISOString().split('T')[0];
+
+  return (
+    <div className="bg-slate-800/50 rounded-lg p-4">
+      {/* Month navigation */}
+      <div className="flex items-center justify-between mb-4">
+        <Button variant="ghost" size="sm" onClick={prevMonth}>
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-white font-medium">{monthName}</span>
+        <Button variant="ghost" size="sm" onClick={nextMonth}>
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {/* Day headers */}
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <div key={day} className="text-center text-xs text-slate-500 py-1">
+            {day}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {calendarDays.map((d, i) => (
+          <button
+            key={i}
+            disabled={!d.date}
+            onClick={() => d.date && onSelectDate(d.date)}
+            className={`
+              aspect-square flex items-center justify-center text-sm rounded transition-colors
+              ${!d.date ? 'cursor-default' : 'cursor-pointer'}
+              ${d.date === selectedDate ? 'bg-stark-500 text-white' : ''}
+              ${d.date === today && d.date !== selectedDate ? 'ring-1 ring-stark-400' : ''}
+              ${d.hasEntry && d.date !== selectedDate ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : ''}
+              ${!d.hasEntry && d.date && d.date !== selectedDate ? 'text-slate-500 hover:bg-slate-700' : ''}
+            `}
+          >
+            {d.day}
+            {d.hasEntry && d.date !== selectedDate && (
+              <span className="absolute bottom-1 w-1 h-1 rounded-full bg-blue-400" />
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SearchView({
+  onSelectFile,
+}: {
+  onSelectFile: (path: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+
+    setIsSearching(true);
+    setError(null);
+
+    try {
+      const response = await searchMemory(query, 30);
+      if (response.success) {
+        setResults(response.results);
+      } else {
+        setError(response.error || 'Search failed');
+      }
+    } catch (err) {
+      setError('Search request failed');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Format snippet with highlights
+  const formatSnippet = (snippet: string) => {
+    // The backend wraps matches in >>> and <<<
+    const parts = snippet.split(/(>>>.*?<<<)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('>>>') && part.endsWith('<<<')) {
+        return (
+          <mark key={i} className="bg-yellow-500/30 text-yellow-200 px-0.5 rounded">
+            {part.slice(3, -3)}
+          </mark>
+        );
+      }
+      return part;
     });
   };
 
   return (
-    <Card className={`transition-all ${isSelected ? 'ring-2 ring-stark-500' : ''}`}>
-      <CardContent>
-        <div className="flex items-start gap-4">
-          {/* Selection checkbox */}
-          <div className="pt-1">
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={onSelect}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-stark-500 focus:ring-stark-500"
-            />
-          </div>
-
-          {/* Memory content */}
-          <div className="flex-1 min-w-0">
-            {/* Type badge and metadata */}
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${typeConfig.color}`}>
-                {typeConfig.label}
-              </span>
-              {memory.entity_type && (
-                <span className="px-2 py-0.5 bg-slate-700 rounded text-xs text-slate-400">
-                  <Tag className="w-3 h-3 inline mr-1" />
-                  {memory.entity_type}
-                  {memory.entity_name && `: ${memory.entity_name}`}
-                </span>
-              )}
-              {memory.source_type === 'explicit' && (
-                <span className="px-2 py-0.5 bg-green-500/10 rounded text-xs text-green-400">
-                  Explicit
-                </span>
-              )}
-              {memory.superseded_by && (
-                <span className="px-2 py-0.5 bg-red-500/10 rounded text-xs text-red-400">
-                  Superseded
-                </span>
-              )}
-            </div>
-
-            {/* Content */}
-            {isEditing ? (
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none"
-                rows={4}
-              />
-            ) : (
-              <p className="text-white whitespace-pre-wrap break-words text-sm">
-                {memory.content}
-              </p>
-            )}
-
-            {/* Footer metadata */}
-            <div className="flex items-center gap-4 mt-3 text-xs text-slate-500 flex-wrap">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {formatDate(memory.created_at)}
-              </span>
-              {memory.identity_id && (
-                <span className="flex items-center gap-1">
-                  <User className="w-3 h-3" />
-                  {memory.identity_id.slice(0, 8)}...
-                </span>
-              )}
-              {memory.source_channel_type && (
-                <span className="px-1.5 py-0.5 bg-slate-700 rounded">
-                  {memory.source_channel_type}
-                </span>
-              )}
-              {memory.valid_until && (
-                <span className="flex items-center gap-1 text-yellow-500">
-                  Expires: {new Date(memory.valid_until).toLocaleDateString()}
-                </span>
-              )}
-              {/* Importance */}
-              {isEditing ? (
-                <div className="flex items-center gap-2">
-                  <Star className="w-3 h-3" />
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={editImportance}
-                    onChange={(e) => setEditImportance(parseInt(e.target.value))}
-                    className="w-20 h-1"
-                  />
-                  <span>{editImportance}</span>
-                </div>
-              ) : (
-                <span className="flex items-center gap-1">
-                  <Star className="w-3 h-3" />
-                  {memory.importance}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-1 shrink-0">
-            {isEditing ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSave}
-                  className="text-green-400 hover:bg-green-500/20"
-                >
-                  <Check className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onCancel}
-                  className="text-slate-400 hover:bg-slate-700"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onEdit}
-                  className="text-slate-400 hover:text-white hover:bg-slate-700"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onDelete}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </>
-            )}
-          </div>
+    <div className="space-y-4">
+      {/* Search input */}
+      <div className="flex gap-2">
+        <div className="flex-1 relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Search memories (BM25 full-text)..."
+            className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-stark-500"
+          />
         </div>
-      </CardContent>
-    </Card>
+        <Button onClick={handleSearch} disabled={isSearching || !query.trim()}>
+          {isSearching ? 'Searching...' : 'Search'}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="text-red-400 text-sm bg-red-500/10 px-3 py-2 rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Results */}
+      {results.length > 0 ? (
+        <div className="space-y-2">
+          <div className="text-sm text-slate-400">{results.length} results found</div>
+          {results.map((result, i) => (
+            <button
+              key={i}
+              onClick={() => onSelectFile(result.file_path)}
+              className="w-full text-left p-3 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <FileText className="w-4 h-4 text-slate-400" />
+                <span className="text-sm text-stark-400 font-mono">{result.file_path}</span>
+                <span className="text-xs text-slate-500 ml-auto">
+                  score: {Math.abs(result.score).toFixed(2)}
+                </span>
+              </div>
+              <p className="text-sm text-slate-300 line-clamp-2">{formatSnippet(result.snippet)}</p>
+            </button>
+          ))}
+        </div>
+      ) : query && !isSearching ? (
+        <div className="text-center text-slate-500 py-8">
+          No results found for "{query}"
+        </div>
+      ) : null}
+    </div>
   );
 }
 
+function MarkdownViewer({ content }: { content: string }) {
+  // Simple markdown rendering - just handle headers and basic formatting
+  const lines = content.split('\n');
+
+  return (
+    <div className="prose prose-invert prose-sm max-w-none">
+      {lines.map((line, i) => {
+        if (line.startsWith('## ')) {
+          return (
+            <h2 key={i} className="text-lg font-semibold text-stark-400 mt-4 mb-2">
+              {line.slice(3)}
+            </h2>
+          );
+        }
+        if (line.startsWith('# ')) {
+          return (
+            <h1 key={i} className="text-xl font-bold text-white mt-4 mb-2">
+              {line.slice(2)}
+            </h1>
+          );
+        }
+        if (line.startsWith('- ')) {
+          return (
+            <li key={i} className="text-slate-300 ml-4">
+              {line.slice(2)}
+            </li>
+          );
+        }
+        if (line.trim() === '') {
+          return <div key={i} className="h-2" />;
+        }
+        return (
+          <p key={i} className="text-slate-300">
+            {line}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function AddEntryModal({
+  type,
+  identityId,
+  onClose,
+  onSuccess,
+}: {
+  type: 'daily' | 'long_term';
+  identityId: string | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [content, setContent] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!content.trim()) return;
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const response = type === 'daily'
+        ? await appendToDailyLog(content, identityId || undefined)
+        : await appendToLongTerm(content, identityId || undefined);
+
+      if (response.success) {
+        onSuccess();
+        onClose();
+      } else {
+        setError(response.error || 'Failed to add entry');
+      }
+    } catch {
+      setError('Request failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-slate-900 rounded-lg p-6 max-w-lg w-full mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-white">
+            Add to {type === 'daily' ? 'Daily Log' : 'Long-term Memory'}
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {identityId && (
+          <div className="text-sm text-slate-400 mb-3">
+            Identity: <span className="text-stark-400">{identityId}</span>
+          </div>
+        )}
+
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder={type === 'daily' ? 'What happened today?' : 'Add a fact, preference, or important information...'}
+          className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none h-32 mb-4"
+        />
+
+        {error && (
+          <div className="text-red-400 text-sm mb-4">{error}</div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting || !content.trim()}>
+            {isSubmitting ? 'Adding...' : 'Add Entry'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component
+// ============================================================================
+
 export default function MemoryBrowser() {
-  const [memories, setMemories] = useState<MemoryInfo[]>([]);
+  const [files, setFiles] = useState<MemoryFile[]>([]);
   const [stats, setStats] = useState<MemoryStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<string>('');
-  const [minImportance, setMinImportance] = useState<number>(0);
-  const [showSuperseded, setShowSuperseded] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  // View state
+  const [viewMode, setViewMode] = useState<ViewMode>('files');
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [loadingContent, setLoadingContent] = useState(false);
 
-  // Selection and editing
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [editingId, setEditingId] = useState<number | null>(null);
+  // Filter state
+  const [selectedIdentity, setSelectedIdentity] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  // Merge modal
-  const [showMergeModal, setShowMergeModal] = useState(false);
-  const [mergeContent, setMergeContent] = useState('');
+  // Add entry modal
+  const [addEntryType, setAddEntryType] = useState<'daily' | 'long_term' | null>(null);
 
-  // Stats modal
-  const [showStats, setShowStats] = useState(false);
+  // Load files and stats
+  const loadData = async () => {
+    setIsLoading(true);
+    setError(null);
 
-  // Pagination
-  const [offset, setOffset] = useState(0);
-  const limit = 50;
-
-  // Load memories
-  const loadMemories = async () => {
     try {
-      setIsLoading(true);
-      setError(null);
+      const [filesRes, statsRes] = await Promise.all([getMemoryFiles(), getMemoryStats()]);
 
-      let data: MemoryInfo[];
-
-      if (searchQuery.trim()) {
-        // Use search API
-        const results = await searchMemories(searchQuery, {
-          memory_type: selectedType || undefined,
-          min_importance: minImportance || undefined,
-          limit,
-        });
-        data = results.map((r) => r.memory);
+      if (filesRes.success) {
+        setFiles(filesRes.files);
       } else {
-        // Use filtered list API
-        const params: ListMemoriesParams = {
-          limit,
-          offset,
-          include_superseded: showSuperseded,
-        };
-        if (selectedType) params.memory_type = selectedType;
-        if (minImportance > 0) params.min_importance = minImportance;
-
-        data = await getMemoriesFiltered(params);
+        setError(filesRes.error || 'Failed to load files');
       }
 
-      setMemories(data);
+      if (statsRes.success) {
+        setStats(statsRes.stats);
+      }
     } catch (err) {
-      setError('Failed to load memories');
-      console.error(err);
+      setError('Failed to load memory data');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Load stats
-  const loadStats = async () => {
-    try {
-      const statsData = await getMemoryStats();
-      setStats(statsData);
-    } catch (err) {
-      console.error('Failed to load stats:', err);
-    }
-  };
-
   useEffect(() => {
-    loadMemories();
-    loadStats();
-  }, [selectedType, minImportance, showSuperseded, offset]);
+    loadData();
+  }, []);
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchQuery !== '') {
-        loadMemories();
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this memory?')) return;
+  // Load file content when selected
+  const loadFileContent = async (path: string) => {
+    setLoadingContent(true);
     try {
-      await deleteMemory(String(id));
-      setMemories((prev) => prev.filter((m) => m.id !== id));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    } catch (err) {
-      setError('Failed to delete memory');
-    }
-  };
-
-  const handleUpdate = async (id: number, updates: Partial<MemoryInfo>) => {
-    try {
-      const cleaned: Record<string, unknown> = {};
-      if (updates.content !== undefined) cleaned.content = updates.content;
-      if (updates.importance !== undefined) cleaned.importance = updates.importance;
-
-      if (Object.keys(cleaned).length === 0) {
-        setEditingId(null);
-        return;
-      }
-
-      const updated = await updateMemory(id, cleaned);
-      setMemories((prev) => prev.map((m) => (m.id === id ? updated : m)));
-      setEditingId(null);
-    } catch (err) {
-      setError('Failed to update memory');
-    }
-  };
-
-  const handleMerge = async () => {
-    if (selectedIds.size < 2) {
-      setError('Select at least 2 memories to merge');
-      return;
-    }
-    if (!mergeContent.trim()) {
-      setError('Please provide merged content');
-      return;
-    }
-
-    try {
-      const result = await mergeMemories(Array.from(selectedIds), mergeContent);
-      // Remove superseded memories, add new one
-      setMemories((prev) => [
-        result.merged_memory,
-        ...prev.filter((m) => !selectedIds.has(m.id)),
-      ]);
-      setSelectedIds(new Set());
-      setShowMergeModal(false);
-      setMergeContent('');
-    } catch (err) {
-      setError('Failed to merge memories');
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      const markdown = await exportMemories();
-      const blob = new Blob([markdown], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'memories.md';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError('Failed to export memories');
-    }
-  };
-
-  const toggleSelect = (id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+      const response = await readMemoryFile(path);
+      if (response.success && response.content !== undefined) {
+        setFileContent(response.content);
+        setSelectedFile(path);
       } else {
-        next.add(id);
+        setError(response.error || 'Failed to read file');
       }
-      return next;
-    });
-  };
-
-  const selectAll = () => {
-    if (selectedIds.size === memories.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(memories.map((m) => m.id)));
+    } catch {
+      setError('Failed to load file');
+    } finally {
+      setLoadingContent(false);
     }
   };
 
-  // Calculate selected memories content for merge preview
-  const selectedMemories = useMemo(() => {
-    return memories.filter((m) => selectedIds.has(m.id));
-  }, [memories, selectedIds]);
+  // Load daily log by date
+  const loadDailyLogByDate = async (date: string) => {
+    setLoadingContent(true);
+    setSelectedDate(date);
+    try {
+      const response = await getDailyLog(date, selectedIdentity || undefined);
+      if (response.success) {
+        setFileContent(response.content || '');
+        setSelectedFile(response.path);
+      } else {
+        setFileContent('');
+        setSelectedFile(`${date}.md`);
+      }
+    } catch {
+      setFileContent('');
+      setSelectedFile(`${date}.md`);
+    } finally {
+      setLoadingContent(false);
+    }
+  };
 
-  if (isLoading && memories.length === 0) {
+  // Handle reindex
+  const handleReindex = async () => {
+    try {
+      const response = await reindexMemory();
+      if (response.success) {
+        await loadData();
+      } else {
+        setError(response.error || 'Reindex failed');
+      }
+    } catch {
+      setError('Reindex request failed');
+    }
+  };
+
+  // Filter files by identity
+  const filteredFiles = useMemo(() => {
+    if (!selectedIdentity) return files;
+    return files.filter((f) => f.identity_id === selectedIdentity);
+  }, [files, selectedIdentity]);
+
+  // Group files by type
+  const groupedFiles = useMemo(() => {
+    const longTerm = filteredFiles.filter((f) => f.file_type === 'long_term');
+    const dailyLogs = filteredFiles.filter((f) => f.file_type === 'daily_log');
+    const other = filteredFiles.filter((f) => f.file_type === 'unknown');
+    return { longTerm, dailyLogs, other };
+  }, [filteredFiles]);
+
+  if (isLoading && files.length === 0) {
     return (
       <div className="p-8 flex items-center justify-center">
         <div className="flex items-center gap-3">
@@ -444,99 +618,87 @@ export default function MemoryBrowser() {
           <div>
             <h1 className="text-2xl font-bold text-white mb-1">Memory Browser</h1>
             <p className="text-slate-400 text-sm">
-              {stats
-                ? `${stats.total_count} total memories | ${stats.temporal_active_count} active`
-                : 'Loading stats...'}
+              {stats ? (
+                <>
+                  {stats.total_files} files | {stats.daily_log_count} daily logs | {stats.long_term_count} long-term
+                  {stats.date_range && (
+                    <span className="ml-2 text-slate-500">
+                      ({stats.date_range.oldest} to {stats.date_range.newest})
+                    </span>
+                  )}
+                </>
+              ) : (
+                'QMD Markdown-based memory system'
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => setShowStats(true)}
+              onClick={handleReindex}
               className="flex items-center gap-2"
             >
-              <BarChart3 className="w-4 h-4" />
-              Stats
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleExport}
-              className="flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export
+              <RefreshCw className="w-4 h-4" />
+              Reindex
             </Button>
           </div>
         </div>
 
-        {/* Search and filters */}
-        <div className="flex flex-col gap-3">
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search memories..."
-                className="w-full pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-stark-500"
-              />
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2"
+        {/* View mode tabs */}
+        <div className="flex items-center gap-4 border-b border-slate-700 pb-3">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setViewMode('files')}
+              className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                viewMode === 'files'
+                  ? 'bg-stark-500 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
             >
-              <Filter className="w-4 h-4" />
-              Filters
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`}
-              />
-            </Button>
+              <FolderOpen className="w-4 h-4 inline mr-1.5" />
+              Files
+            </button>
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                viewMode === 'calendar'
+                  ? 'bg-stark-500 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <Calendar className="w-4 h-4 inline mr-1.5" />
+              Calendar
+            </button>
+            <button
+              onClick={() => setViewMode('search')}
+              className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                viewMode === 'search'
+                  ? 'bg-stark-500 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700'
+              }`}
+            >
+              <Search className="w-4 h-4 inline mr-1.5" />
+              Search
+            </button>
           </div>
 
-          {/* Expanded filters */}
-          {showFilters && (
-            <div className="flex flex-wrap gap-3 p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Type:</label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white"
-                >
-                  <option value="">All Types</option>
-                  {Object.entries(MEMORY_TYPES).map(([key, { label }]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-slate-400">Min Importance:</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="10"
-                  value={minImportance}
-                  onChange={(e) => setMinImportance(parseInt(e.target.value))}
-                  className="w-24"
-                />
-                <span className="text-sm text-white w-4">{minImportance}</span>
-              </div>
-              <label className="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showSuperseded}
-                  onChange={(e) => setShowSuperseded(e.target.checked)}
-                  className="rounded border-slate-600 bg-slate-800 text-stark-500"
-                />
-                Show superseded
-              </label>
+          {/* Identity filter */}
+          {stats && stats.identities.length > 0 && (
+            <div className="flex items-center gap-2 ml-auto">
+              <User className="w-4 h-4 text-slate-500" />
+              <select
+                value={selectedIdentity || ''}
+                onChange={(e) => setSelectedIdentity(e.target.value || null)}
+                className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white"
+              >
+                <option value="">All identities</option>
+                {stats.identities.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
         </div>
@@ -551,191 +713,237 @@ export default function MemoryBrowser() {
         </div>
       )}
 
-      {/* Selection actions */}
-      {selectedIds.size > 0 && (
-        <div className="mb-4 flex items-center gap-3 p-3 bg-stark-500/10 border border-stark-500/30 rounded-lg">
-          <span className="text-sm text-stark-400">{selectedIds.size} selected</span>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowMergeModal(true)}
-            disabled={selectedIds.size < 2}
-            className="flex items-center gap-2"
-          >
-            <Merge className="w-4 h-4" />
-            Merge
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setSelectedIds(new Set())}>
-            Clear
-          </Button>
-        </div>
-      )}
-
-      {/* Memory list */}
-      {memories.length > 0 ? (
-        <div className="space-y-3">
-          {/* Select all */}
-          <div className="flex items-center gap-2 px-2">
-            <input
-              type="checkbox"
-              checked={selectedIds.size === memories.length && memories.length > 0}
-              onChange={selectAll}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-stark-500"
-            />
-            <span className="text-sm text-slate-400">Select all</span>
-          </div>
-
-          {memories.map((memory) => (
-            <MemoryCard
-              key={memory.id}
-              memory={memory}
-              isSelected={selectedIds.has(memory.id)}
-              isEditing={editingId === memory.id}
-              onSelect={() => toggleSelect(memory.id)}
-              onEdit={() => setEditingId(memory.id)}
-              onSave={(updates) => handleUpdate(memory.id, updates)}
-              onCancel={() => setEditingId(null)}
-              onDelete={() => handleDelete(memory.id)}
-            />
-          ))}
-
-          {/* Pagination */}
-          <div className="flex justify-center gap-2 mt-6">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setOffset(Math.max(0, offset - limit))}
-              disabled={offset === 0}
-            >
-              Previous
-            </Button>
-            <span className="px-4 py-2 text-sm text-slate-400">
-              Showing {offset + 1} - {offset + memories.length}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setOffset(offset + limit)}
-              disabled={memories.length < limit}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="text-center py-12">
-            <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400">No memories found</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Merge Modal */}
-      {showMergeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-900 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-white mb-4">Merge Memories</h2>
-
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-slate-400 mb-2">
-                Selected memories ({selectedMemories.length}):
-              </h3>
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {selectedMemories.map((m) => (
-                  <div key={m.id} className="p-2 bg-slate-800 rounded text-sm text-slate-300">
-                    {m.content.slice(0, 100)}...
+      {/* Main content area */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left panel: File list / Calendar / Search */}
+        <div className="lg:col-span-1">
+          {viewMode === 'files' && (
+            <div className="space-y-4">
+              {/* Long-term memories */}
+              {groupedFiles.longTerm.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Brain className="w-4 h-4 text-purple-400" />
+                    <span className="text-sm font-medium text-purple-400">Long-term Memory</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAddEntryType('long_term')}
+                      className="ml-auto text-slate-400 hover:text-white"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </Button>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="space-y-1">
+                    {groupedFiles.longTerm.map((file) => (
+                      <button
+                        key={file.path}
+                        onClick={() => loadFileContent(file.path)}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                          selectedFile === file.path
+                            ? 'bg-purple-500/20 text-purple-300'
+                            : 'text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileTypeIcon type={file.file_type} />
+                          <span className="truncate">{file.name}</span>
+                        </div>
+                        {file.identity_id && (
+                          <span className="text-xs text-slate-500 ml-6">{file.identity_id}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-            <div className="mb-4">
-              <label className="text-sm font-medium text-slate-400 mb-2 block">
-                Merged content:
-              </label>
-              <textarea
-                value={mergeContent}
-                onChange={(e) => setMergeContent(e.target.value)}
-                placeholder="Enter the consolidated content for the merged memory..."
-                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm resize-none"
-                rows={6}
+              {/* Daily logs */}
+              {groupedFiles.dailyLogs.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm font-medium text-blue-400">Daily Logs</span>
+                    <span className="text-xs text-slate-500">({groupedFiles.dailyLogs.length})</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setAddEntryType('daily')}
+                      className="ml-auto text-slate-400 hover:text-white"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <div className="space-y-1 max-h-96 overflow-y-auto">
+                    {groupedFiles.dailyLogs.map((file) => (
+                      <button
+                        key={file.path}
+                        onClick={() => loadFileContent(file.path)}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                          selectedFile === file.path
+                            ? 'bg-blue-500/20 text-blue-300'
+                            : 'text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileTypeIcon type={file.file_type} />
+                          <span>{file.date}</span>
+                          <span className="text-xs text-slate-500 ml-auto">
+                            {file.size > 1024
+                              ? `${(file.size / 1024).toFixed(1)}KB`
+                              : `${file.size}B`}
+                          </span>
+                        </div>
+                        {file.identity_id && (
+                          <span className="text-xs text-slate-500 ml-6">{file.identity_id}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filteredFiles.length === 0 && (
+                <Card>
+                  <CardContent className="text-center py-8">
+                    <FileText className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                    <p className="text-slate-400">No memory files yet</p>
+                    <p className="text-slate-500 text-sm mt-1">
+                      Memories will appear here as they are created
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {viewMode === 'calendar' && (
+            <div className="space-y-4">
+              <CalendarView
+                files={filteredFiles}
+                selectedDate={selectedDate}
+                onSelectDate={loadDailyLogByDate}
               />
-            </div>
-
-            <div className="flex justify-end gap-2">
               <Button
                 variant="secondary"
-                onClick={() => {
-                  setShowMergeModal(false);
-                  setMergeContent('');
-                }}
+                size="sm"
+                onClick={() => setAddEntryType('daily')}
+                className="w-full flex items-center justify-center gap-2"
               >
-                Cancel
+                <Plus className="w-4 h-4" />
+                Add to Today's Log
               </Button>
-              <Button onClick={handleMerge}>Merge Memories</Button>
             </div>
-          </div>
+          )}
+
+          {viewMode === 'search' && (
+            <SearchView onSelectFile={loadFileContent} />
+          )}
+
+          {/* Stats summary */}
+          {stats && (
+            <Card className="mt-4">
+              <CardContent className="py-3">
+                <div className="flex items-center gap-2 text-sm text-slate-400 mb-2">
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Memory Stats</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-slate-500">Files:</span>{' '}
+                    <span className="text-white">{stats.total_files}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Daily:</span>{' '}
+                    <span className="text-blue-400">{stats.daily_log_count}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Long-term:</span>{' '}
+                    <span className="text-purple-400">{stats.long_term_count}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Identities:</span>{' '}
+                    <span className="text-white">{stats.identity_count}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      )}
 
-      {/* Stats Modal */}
-      {showStats && stats && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-slate-900 rounded-lg p-6 max-w-lg w-full mx-4">
-            <h2 className="text-xl font-bold text-white mb-4">Memory Statistics</h2>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-slate-800 rounded">
-                  <div className="text-2xl font-bold text-stark-400">{stats.total_count}</div>
-                  <div className="text-sm text-slate-400">Total Memories</div>
+        {/* Right panel: Content viewer */}
+        <div className="lg:col-span-2">
+          <Card className="h-full min-h-[400px]">
+            <CardContent>
+              {loadingContent ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
                 </div>
-                <div className="p-3 bg-slate-800 rounded">
-                  <div className="text-2xl font-bold text-green-400">
-                    {stats.temporal_active_count}
-                  </div>
-                  <div className="text-sm text-slate-400">Active</div>
-                </div>
-                <div className="p-3 bg-slate-800 rounded">
-                  <div className="text-2xl font-bold text-orange-400">
-                    {stats.superseded_count}
-                  </div>
-                  <div className="text-sm text-slate-400">Superseded</div>
-                </div>
-                <div className="p-3 bg-slate-800 rounded">
-                  <div className="text-2xl font-bold text-purple-400">
-                    {stats.avg_importance.toFixed(1)}
-                  </div>
-                  <div className="text-sm text-slate-400">Avg Importance</div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-medium text-slate-400 mb-2">By Type:</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(stats.by_type).map(([type, count]) => {
-                    const config = MEMORY_TYPES[type as keyof typeof MEMORY_TYPES];
-                    return (
-                      <div key={type} className="flex justify-between text-sm">
-                        <span className={config?.color || 'text-slate-400'}>
-                          {config?.label || type}
+              ) : selectedFile && fileContent !== null ? (
+                <div>
+                  {/* File header */}
+                  <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-700">
+                    <FileTypeIcon
+                      type={
+                        selectedFile.includes('MEMORY.md') ? 'long_term' : 'daily_log'
+                      }
+                    />
+                    <div>
+                      <h2 className="text-lg font-medium text-white">{selectedFile}</h2>
+                      {selectedDate && (
+                        <span className="text-sm text-slate-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(selectedDate).toLocaleDateString('en-US', {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })}
                         </span>
-                        <span className="text-white">{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+                      )}
+                    </div>
+                  </div>
 
-            <div className="mt-6 flex justify-end">
-              <Button variant="secondary" onClick={() => setShowStats(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
+                  {/* Content */}
+                  {fileContent ? (
+                    <div className="max-h-[600px] overflow-y-auto">
+                      <MarkdownViewer content={fileContent} />
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-slate-500">
+                      <FileText className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                      <p>No content yet</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+                  <FileText className="w-12 h-12 mb-3 opacity-50" />
+                  <p>Select a file to view its contents</p>
+                  <p className="text-sm mt-1">
+                    Or use the calendar to browse daily logs
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
+      </div>
+
+      {/* Add entry modal */}
+      {addEntryType && (
+        <AddEntryModal
+          type={addEntryType}
+          identityId={selectedIdentity}
+          onClose={() => setAddEntryType(null)}
+          onSuccess={() => {
+            loadData();
+            // Reload current file if it's the same type
+            if (selectedFile) {
+              loadFileContent(selectedFile);
+            }
+          }}
+        />
       )}
     </div>
   );

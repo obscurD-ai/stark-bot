@@ -72,6 +72,8 @@ pub struct SkillMetadata {
     pub homepage: Option<String>,
     #[serde(default)]
     pub metadata: Option<String>,
+    #[serde(default)]
+    pub subagent_type: Option<String>,
 }
 
 fn default_version() -> String {
@@ -91,6 +93,7 @@ impl Default for SkillMetadata {
             author: None,
             homepage: None,
             metadata: None,
+            subagent_type: None,
         }
     }
 }
@@ -185,6 +188,7 @@ pub struct DbSkill {
     pub requires_binaries: Vec<String>,
     pub arguments: HashMap<String, SkillArgument>,
     pub tags: Vec<String>,
+    pub subagent_type: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -204,6 +208,7 @@ impl DbSkill {
                 author: self.author,
                 homepage: self.homepage,
                 metadata: self.metadata,
+                subagent_type: self.subagent_type,
             },
             prompt_template: self.body,
             source: SkillSource::Managed, // All DB skills are "managed"

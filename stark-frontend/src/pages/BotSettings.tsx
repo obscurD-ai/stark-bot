@@ -447,7 +447,7 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
   };
 
   return (
-    <Card>
+    <Card id="heartbeat" className="scroll-mt-20">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">

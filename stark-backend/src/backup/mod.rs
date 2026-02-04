@@ -39,6 +39,9 @@ pub struct BackupData {
     /// Bot settings (optional)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_settings: Option<BotSettingsEntry>,
+    /// Channel settings (key-value configs per channel)
+    #[serde(default)]
+    pub channel_settings: Vec<ChannelSettingEntry>,
 }
 
 impl BackupData {
@@ -55,6 +58,7 @@ impl BackupData {
             heartbeat_config: None,
             memories: None,
             bot_settings: None,
+            channel_settings: Vec::new(),
         }
     }
 
@@ -67,6 +71,7 @@ impl BackupData {
             + self.memories.as_ref().map(|m| m.len()).unwrap_or(0)
             + if self.bot_settings.is_some() { 1 } else { 0 }
             + if self.heartbeat_config.is_some() { 1 } else { 0 }
+            + self.channel_settings.len()
     }
 }
 
@@ -152,6 +157,14 @@ pub struct BotSettingsEntry {
     pub max_tool_iterations: Option<i32>,
     pub rogue_mode_enabled: bool,
     pub safe_mode_max_queries_per_10min: Option<i32>,
+}
+
+/// Channel setting entry in backup
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelSettingEntry {
+    pub channel_id: i64,
+    pub setting_key: String,
+    pub setting_value: String,
 }
 
 /// Options for what to include in a backup

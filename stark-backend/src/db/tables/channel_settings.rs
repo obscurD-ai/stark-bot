@@ -106,4 +106,33 @@ impl Database {
 
         Ok(())
     }
+
+    /// Get all channel settings across all channels (for backup)
+    pub fn get_all_channel_settings(&self) -> SqliteResult<Vec<ChannelSetting>> {
+        let conn = self.conn();
+
+        let mut stmt = conn.prepare(
+            "SELECT channel_id, setting_key, setting_value FROM channel_settings",
+        )?;
+
+        let settings = stmt
+            .query_map([], |row| {
+                Ok(ChannelSetting {
+                    channel_id: row.get(0)?,
+                    setting_key: row.get(1)?,
+                    setting_value: row.get(2)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(settings)
+    }
+
+    /// Clear all channel settings for restore (wipe before restore to prevent growth)
+    pub fn clear_channel_settings_for_restore(&self) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let rows_deleted = conn.execute("DELETE FROM channel_settings", [])?;
+        Ok(rows_deleted)
+    }
 }

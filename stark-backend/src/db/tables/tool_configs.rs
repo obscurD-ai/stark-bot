@@ -95,6 +95,7 @@ impl Database {
             ToolProfile::Secretary => "secretary",
             ToolProfile::Full => "full",
             ToolProfile::Custom => "custom",
+            ToolProfile::SafeMode => "safemode",
         };
 
         let allow_list_json = serde_json::to_string(&config.allow_list).unwrap_or_default();

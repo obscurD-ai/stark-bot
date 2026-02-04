@@ -127,12 +127,19 @@ impl Database {
                 enabled INTEGER NOT NULL DEFAULT 0,
                 bot_token TEXT NOT NULL,
                 app_token TEXT,
+                safe_mode INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE(channel_type, name)
             )",
             [],
         )?;
+
+        // Migration: Add safe_mode column to external_channels if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE external_channels ADD COLUMN safe_mode INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
 
         // Agent settings table (AI endpoint configuration - simplified for x402)
         // Note: provider, api_key, model columns are deprecated (kept for migration compatibility)

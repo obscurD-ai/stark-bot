@@ -6,7 +6,7 @@ use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::models::{CronJob, HeartbeatConfig, JobStatus, ScheduleType};
 use crate::tools::ToolRegistry;
-use chrono::{DateTime, Duration, Local, NaiveTime, Utc, Weekday, Datelike};
+use chrono::{DateTime, Duration, Local, NaiveTime, Utc, Weekday, Datelike, Timelike};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{interval, timeout, Duration as TokioDuration};
@@ -114,6 +114,37 @@ impl Scheduler {
         // Process heartbeats (always enabled - individual configs control their own enabled state)
         if let Err(e) = self.process_heartbeats().await {
             log::error!("Error processing heartbeats: {}", e);
+        }
+
+        // Run periodic cleanup tasks once per hour (at minute 0, second 0-1)
+        let now = Local::now();
+        if now.minute() == 0 && now.second() <= 1 {
+            self.run_periodic_cleanup();
+        }
+    }
+
+    /// Run periodic cleanup tasks (called approximately once per hour)
+    fn run_periodic_cleanup(&self) {
+        // Cleanup old Twitter processed mentions (keep last 30 days)
+        match self.db.cleanup_old_processed_mentions(30) {
+            Ok(count) if count > 0 => {
+                log::info!("Scheduler: Cleaned up {} old Twitter processed mentions", count);
+            }
+            Ok(_) => {} // Nothing to clean up
+            Err(e) => {
+                log::error!("Scheduler: Failed to cleanup Twitter mentions: {}", e);
+            }
+        }
+
+        // Cleanup old safe mode channels (keep last 60 minutes - more aggressive than FIFO logic)
+        match self.db.cleanup_old_safe_mode_channels(60) {
+            Ok(count) if count > 0 => {
+                log::info!("Scheduler: Cleaned up {} old safe mode channels", count);
+            }
+            Ok(_) => {} // Nothing to clean up
+            Err(e) => {
+                log::error!("Scheduler: Failed to cleanup safe mode channels: {}", e);
+            }
         }
     }
 

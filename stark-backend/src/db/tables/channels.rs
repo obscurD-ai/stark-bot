@@ -1,10 +1,16 @@
 //! Channel database operations
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::Result as SqliteResult;
 
 use crate::models::Channel;
 use super::super::Database;
+
+/// Maximum number of safe mode channels allowed at once
+const MAX_SAFE_MODE_CHANNELS: usize = 10;
+
+/// Minimum age (in minutes) for a safe mode channel to be eligible for cleanup
+const SAFE_MODE_CHANNEL_MIN_AGE_MINUTES: i64 = 5;
 
 impl Database {
     /// Create a new external channel
@@ -15,13 +21,25 @@ impl Database {
         bot_token: &str,
         app_token: Option<&str>,
     ) -> SqliteResult<Channel> {
+        self.create_channel_with_safe_mode(channel_type, name, bot_token, app_token, false)
+    }
+
+    /// Create a new external channel with optional safe mode
+    pub fn create_channel_with_safe_mode(
+        &self,
+        channel_type: &str,
+        name: &str,
+        bot_token: &str,
+        app_token: Option<&str>,
+        safe_mode: bool,
+    ) -> SqliteResult<Channel> {
         let conn = self.conn();
         let now = Utc::now().to_rfc3339();
 
         conn.execute(
-            "INSERT INTO external_channels (channel_type, name, enabled, bot_token, app_token, created_at, updated_at)
-             VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6)",
-            rusqlite::params![channel_type, name, bot_token, app_token, &now, &now],
+            "INSERT INTO external_channels (channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at)
+             VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![channel_type, name, bot_token, app_token, if safe_mode { 1 } else { 0 }, &now, &now],
         )?;
 
         let id = conn.last_insert_rowid();
@@ -33,9 +51,90 @@ impl Database {
             enabled: false,
             bot_token: bot_token.to_string(),
             app_token: app_token.map(|s| s.to_string()),
+            safe_mode,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })
+    }
+
+    /// Create a safe mode channel with rate limiting (max 10, FIFO with 5-min minimum age)
+    /// Returns Ok(channel) if created, Err if rate limited
+    pub fn create_safe_mode_channel(
+        &self,
+        channel_type: &str,
+        name: &str,
+        bot_token: &str,
+        app_token: Option<&str>,
+    ) -> Result<Channel, String> {
+        // Count existing safe mode channels
+        let safe_mode_count = self.count_safe_mode_channels()
+            .map_err(|e| format!("Failed to count safe mode channels: {}", e))?;
+
+        if safe_mode_count >= MAX_SAFE_MODE_CHANNELS {
+            // Try to clean up oldest safe mode channel if it's old enough
+            if let Some(oldest) = self.get_oldest_safe_mode_channel()
+                .map_err(|e| format!("Failed to get oldest safe mode channel: {}", e))?
+            {
+                let age = Utc::now() - oldest.created_at;
+                if age >= Duration::minutes(SAFE_MODE_CHANNEL_MIN_AGE_MINUTES) {
+                    log::info!(
+                        "Safe mode channel limit reached, deleting oldest channel {} (age: {} minutes)",
+                        oldest.id,
+                        age.num_minutes()
+                    );
+                    self.delete_channel(oldest.id)
+                        .map_err(|e| format!("Failed to delete old safe mode channel: {}", e))?;
+                } else {
+                    return Err(format!(
+                        "Safe mode channel limit reached ({}/{}). Oldest channel is only {} minutes old (minimum {} required for cleanup).",
+                        safe_mode_count, MAX_SAFE_MODE_CHANNELS, age.num_minutes(), SAFE_MODE_CHANNEL_MIN_AGE_MINUTES
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "Safe mode channel limit reached ({}/{}) but no channels found to clean up",
+                    safe_mode_count, MAX_SAFE_MODE_CHANNELS
+                ));
+            }
+        }
+
+        // Create the new safe mode channel
+        self.create_channel_with_safe_mode(channel_type, name, bot_token, app_token, true)
+            .map_err(|e| format!("Failed to create safe mode channel: {}", e))
+    }
+
+    /// Count the number of safe mode channels
+    pub fn count_safe_mode_channels(&self) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM external_channels WHERE safe_mode = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Get the oldest safe mode channel
+    pub fn get_oldest_safe_mode_channel(&self) -> SqliteResult<Option<Channel>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT id, channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at
+             FROM external_channels WHERE safe_mode = 1 ORDER BY created_at ASC LIMIT 1"
+        )?;
+
+        let channel = stmt.query_row([], |row| Self::row_to_channel(row)).ok();
+        Ok(channel)
+    }
+
+    /// Delete all safe mode channels older than the specified age
+    pub fn cleanup_old_safe_mode_channels(&self, min_age_minutes: i64) -> SqliteResult<usize> {
+        let conn = self.conn();
+        let cutoff = (Utc::now() - Duration::minutes(min_age_minutes)).to_rfc3339();
+        let deleted = conn.execute(
+            "DELETE FROM external_channels WHERE safe_mode = 1 AND created_at < ?1",
+            [&cutoff],
+        )?;
+        Ok(deleted)
     }
 
     /// Get a channel by ID
@@ -43,7 +142,7 @@ impl Database {
         let conn = self.conn();
 
         let mut stmt = conn.prepare(
-            "SELECT id, channel_type, name, enabled, bot_token, app_token, created_at, updated_at
+            "SELECT id, channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at
              FROM external_channels WHERE id = ?1",
         )?;
 
@@ -59,7 +158,7 @@ impl Database {
         let conn = self.conn();
 
         let mut stmt = conn.prepare(
-            "SELECT id, channel_type, name, enabled, bot_token, app_token, created_at, updated_at
+            "SELECT id, channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at
              FROM external_channels ORDER BY channel_type, name",
         )?;
 
@@ -76,7 +175,7 @@ impl Database {
         let conn = self.conn();
 
         let mut stmt = conn.prepare(
-            "SELECT id, channel_type, name, enabled, bot_token, app_token, created_at, updated_at
+            "SELECT id, channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at
              FROM external_channels WHERE enabled = 1 ORDER BY channel_type, name",
         )?;
 
@@ -174,9 +273,21 @@ impl Database {
         Ok(rows_affected > 0)
     }
 
+    /// Set the safe_mode flag on a channel
+    pub fn set_channel_safe_mode(&self, id: i64, safe_mode: bool) -> SqliteResult<bool> {
+        let conn = self.conn();
+        let now = Utc::now().to_rfc3339();
+        let rows_affected = conn.execute(
+            "UPDATE external_channels SET safe_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![if safe_mode { 1 } else { 0 }, &now, id],
+        )?;
+        Ok(rows_affected > 0)
+    }
+
     fn row_to_channel(row: &rusqlite::Row) -> rusqlite::Result<Channel> {
-        let created_at_str: String = row.get(6)?;
-        let updated_at_str: String = row.get(7)?;
+        // Column order: id, channel_type, name, enabled, bot_token, app_token, safe_mode, created_at, updated_at
+        let created_at_str: String = row.get(7)?;
+        let updated_at_str: String = row.get(8)?;
 
         Ok(Channel {
             id: row.get(0)?,
@@ -185,6 +296,7 @@ impl Database {
             enabled: row.get::<_, i32>(3)? != 0,
             bot_token: row.get(4)?,
             app_token: row.get(5)?,
+            safe_mode: row.get::<_, i32>(6).unwrap_or(0) != 0,
             created_at: DateTime::parse_from_rfc3339(&created_at_str)
                 .unwrap()
                 .with_timezone(&Utc),

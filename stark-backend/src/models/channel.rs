@@ -47,6 +47,9 @@ pub struct Channel {
     pub bot_token: String,
     #[serde(skip_serializing)]
     pub app_token: Option<String>,
+    /// Safe mode restricts tool access for untrusted external input (e.g., Twitter mentions)
+    #[serde(default)]
+    pub safe_mode: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -67,6 +70,8 @@ pub struct ChannelResponse {
     pub bot_token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_token: Option<String>,
+    /// Safe mode restricts tool access for untrusted external input
+    pub safe_mode: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,6 +87,7 @@ impl From<Channel> for ChannelResponse {
             enabled: channel.enabled,
             bot_token: channel.bot_token,
             app_token: channel.app_token,
+            safe_mode: channel.safe_mode,
             created_at: channel.created_at,
             updated_at: channel.updated_at,
             running: None,

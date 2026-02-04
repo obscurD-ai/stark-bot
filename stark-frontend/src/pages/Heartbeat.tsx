@@ -129,22 +129,46 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
   const [isPulsing, setIsPulsing] = useState(false);
   const [countdown, setCountdown] = useState<string | null>(null);
 
-  // Countdown timer effect
+  // Countdown timer effect with polling fallback when stuck at "soon..."
   useEffect(() => {
     if (!config?.next_beat_at || !config?.enabled) {
       setCountdown(null);
       return;
     }
 
-    const updateCountdown = () => {
+    let soonSinceMs: number | null = null;
+    const POLL_AFTER_MS = 5000; // Poll for updated config after 5s of "soon..."
+
+    const updateCountdown = async () => {
       const now = new Date().getTime();
       const target = new Date(config.next_beat_at!).getTime();
       const diff = target - now;
 
       if (diff <= 0) {
         setCountdown('soon...');
+
+        // Track how long we've been at "soon..."
+        if (soonSinceMs === null) {
+          soonSinceMs = now;
+        } else if (now - soonSinceMs > POLL_AFTER_MS) {
+          // We've been stuck at "soon..." too long, poll for updated config
+          console.log('[Heartbeat] Polling for updated config (stuck at soon...)');
+          soonSinceMs = now; // Reset to avoid spamming
+          try {
+            const newConfig = await getHeartbeatConfig();
+            if (newConfig && newConfig.next_beat_at !== config.next_beat_at) {
+              console.log('[Heartbeat] Got updated next_beat_at from poll');
+              setConfig(newConfig);
+            }
+          } catch (e) {
+            console.error('[Heartbeat] Poll failed:', e);
+          }
+        }
         return;
       }
+
+      // Reset soon tracker if we're back to counting
+      soonSinceMs = null;
 
       const hours = Math.floor(diff / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -163,7 +187,7 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
     const interval = setInterval(updateCountdown, 1000);
 
     return () => clearInterval(interval);
-  }, [config?.next_beat_at, config?.enabled]);
+  }, [config?.next_beat_at, config?.enabled, config, setConfig]);
 
   // Helper to convert minutes to value + unit
   const minutesToValueUnit = (minutes: number): { value: number; unit: 'minutes' | 'hours' | 'days' } => {
@@ -215,8 +239,15 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
     setIsSaving(true);
     setMessage(null);
 
+    // Calculate interval_minutes directly from current state to avoid stale formData
+    const multipliers = { minutes: 1, hours: 60, days: 1440 };
+    const calculatedMinutes = intervalValue * multipliers[intervalUnit];
+
     try {
-      const updated = await updateHeartbeatConfig(formData);
+      const updated = await updateHeartbeatConfig({
+        ...formData,
+        interval_minutes: calculatedMinutes,
+      });
       setConfig(updated);
       setMessage({ type: 'success', text: 'Heartbeat settings saved' });
     } catch (err) {

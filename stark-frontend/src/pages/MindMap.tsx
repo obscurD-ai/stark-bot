@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as d3 from 'd3';
 import { animate } from 'animejs';
-import { X, Save, Trash2, Menu, Clock, MessageSquare, Heart, Zap } from 'lucide-react';
+import { X, Save, Trash2, Menu, Clock, MessageSquare, Zap } from 'lucide-react';
 import Button from '@/components/ui/Button';
+import HeartbeatIcon from '@/components/HeartbeatIcon';
 import {
   getMindGraph,
   createMindNode,
@@ -747,10 +748,7 @@ export default function MindMap() {
               className="group cursor-pointer"
               title="Configure heartbeat"
             >
-              <Heart
-                size={16}
-                className={`${heartbeatEnabled ? 'text-red-500 fill-red-500' : 'text-gray-500'} group-hover:animate-heartbeat`}
-              />
+              <HeartbeatIcon enabled={heartbeatEnabled} size={16} />
             </button>
             <button
               onClick={handleHeartbeatToggle}

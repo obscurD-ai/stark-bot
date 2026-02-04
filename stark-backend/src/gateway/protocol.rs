@@ -81,6 +81,8 @@ pub enum EventType {
     TxQueueConfirmationRequired,  // Pending tx needs user confirmation
     TxQueueConfirmed,             // User confirmed, tx broadcast
     TxQueueDenied,                // User denied, tx deleted
+    // Context management events
+    ContextCompacting,  // Session context is being compacted to reduce token usage
 }
 
 impl EventType {
@@ -144,6 +146,7 @@ impl EventType {
             Self::TxQueueConfirmationRequired => "tx_queue.confirmation_required",
             Self::TxQueueConfirmed => "tx_queue.confirmed",
             Self::TxQueueDenied => "tx_queue.denied",
+            Self::ContextCompacting => "context.compacting",
         }
     }
 }
@@ -1213,6 +1216,29 @@ impl GatewayEvent {
                 "wait_seconds": wait_seconds,
                 "error": error,
                 "provider": provider,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    // =====================================================
+    // Context Management Events
+    // =====================================================
+
+    /// Context compaction started - broadcast when session history is being compressed
+    pub fn context_compacting(
+        channel_id: i64,
+        session_id: i64,
+        compaction_type: &str,
+        reason: &str,
+    ) -> Self {
+        Self::new(
+            EventType::ContextCompacting,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "session_id": session_id,
+                "compaction_type": compaction_type,  // "incremental" or "full"
+                "reason": reason,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

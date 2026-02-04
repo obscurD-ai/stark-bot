@@ -567,16 +567,47 @@ export default function AgentChat() {
       });
     };
 
+    const handleContextCompacting = (data: unknown) => {
+      // Filter out events from other sessions
+      const event = data as {
+        channel_id: number;
+        session_id: number;
+        compaction_type: string;
+        reason: string;
+        timestamp: string;
+      };
+      // Only show for current session
+      if (event.session_id !== dbSessionId) return;
+
+      console.log('[Context] Compacting:', event.compaction_type, event.reason);
+      // Replace any previous compaction message with the new one
+      setMessages((prev) => {
+        const filtered = prev.filter((m) => !(m.role === 'system' && m.content.startsWith('📦 Compacting')));
+        return [
+          ...filtered,
+          {
+            id: crypto.randomUUID(),
+            role: 'system' as MessageRole,
+            content: `📦 Compacting conversation history (${event.compaction_type})...`,
+            timestamp: new Date(event.timestamp),
+            sessionId,
+          },
+        ];
+      });
+    };
+
     on('agent.thinking', handleThinking);
     on('agent.error', handleError);
     on('agent.warning', handleWarning);
     on('ai.retrying', handleAiRetrying);
+    on('context.compacting', handleContextCompacting);
 
     return () => {
       off('agent.thinking', handleThinking);
       off('agent.error', handleError);
       off('agent.warning', handleWarning);
       off('ai.retrying', handleAiRetrying);
+      off('context.compacting', handleContextCompacting);
     };
   }, [on, off, sessionId, dbSessionId]);
 

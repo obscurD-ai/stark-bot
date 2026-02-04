@@ -25,6 +25,7 @@ import {
   Network,
   Heart,
 } from 'lucide-react';
+import HeartbeatIcon from '@/components/HeartbeatIcon';
 import NavItem from './NavItem';
 import { useAuth } from '@/hooks/useAuth';
 import { getHeartbeatConfig } from '@/lib/api';
@@ -77,10 +78,7 @@ export default function Sidebar() {
             className="group cursor-pointer"
             title="Configure heartbeat"
           >
-            <Heart
-              size={16}
-              className={`${heartbeatEnabled ? 'text-red-500 fill-red-500' : 'text-slate-500'} group-hover:animate-heartbeat`}
-            />
+            <HeartbeatIcon enabled={heartbeatEnabled} size={16} />
           </button>
         </div>
       </div>

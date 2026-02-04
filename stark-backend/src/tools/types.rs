@@ -129,6 +129,9 @@ pub enum ToolProfile {
     Full,
     /// Custom configuration
     Custom,
+    /// Safe mode - severely restricted for untrusted external input (e.g., Twitter)
+    /// Only allows Web tools with no exec, filesystem, or dangerous operations
+    SafeMode,
 }
 
 impl Default for ToolProfile {
@@ -182,6 +185,9 @@ impl ToolProfile {
             }
             ToolProfile::Full => ToolGroup::all(),
             ToolProfile::Custom => vec![], // Custom profile uses explicit allow/deny lists
+            // SafeMode: Only Web tools - no exec, filesystem, finance, or any dangerous operations
+            // Used for untrusted external input like Twitter mentions
+            ToolProfile::SafeMode => vec![ToolGroup::Web],
         }
     }
 
@@ -196,6 +202,7 @@ impl ToolProfile {
             "secretary" | "social" | "marketing" => Some(ToolProfile::Secretary),
             "full" => Some(ToolProfile::Full),
             "custom" => Some(ToolProfile::Custom),
+            "safemode" | "safe_mode" | "safe" => Some(ToolProfile::SafeMode),
             _ => None,
         }
     }

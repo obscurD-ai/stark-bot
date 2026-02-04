@@ -11,11 +11,17 @@ use crate::gateway::events::EventBroadcaster;
 use crate::gateway::protocol::GatewayEvent;
 use crate::models::{Channel, ChannelSettingKey};
 use crate::tools::builtin::social_media::{generate_oauth_header, TwitterCredentials};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::interval;
+
+/// Pre-compiled regex for stripping leading @mentions (case-insensitive)
+static LEADING_MENTION_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^\s*@\w+\s*").unwrap());
 
 /// Minimum poll interval in seconds (Twitter rate limit protection)
 const MIN_POLL_INTERVAL_SECS: u64 = 60;
@@ -149,6 +155,56 @@ struct TwitterApiError {
     error_type: Option<String>,
 }
 
+/// Rate limit information from Twitter API response headers
+#[derive(Debug, Clone, Default)]
+struct RateLimitInfo {
+    /// Remaining requests in current window
+    remaining: Option<u32>,
+    /// Unix timestamp when the rate limit resets
+    reset_at: Option<u64>,
+}
+
+impl RateLimitInfo {
+    /// Parse rate limit headers from a response
+    fn from_response(response: &reqwest::Response) -> Self {
+        let remaining = response
+            .headers()
+            .get("x-rate-limit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok());
+
+        let reset_at = response
+            .headers()
+            .get("x-rate-limit-reset")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok());
+
+        Self { remaining, reset_at }
+    }
+
+    /// Calculate how long to wait until rate limit resets (in seconds)
+    fn seconds_until_reset(&self) -> Option<u64> {
+        self.reset_at.map(|reset| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            reset.saturating_sub(now)
+        })
+    }
+
+    /// Returns true if we're rate limited (remaining == 0)
+    fn is_rate_limited(&self) -> bool {
+        self.remaining == Some(0)
+    }
+}
+
+/// Result of polling mentions, includes rate limit info
+struct PollResult {
+    tweets: Vec<Tweet>,
+    rate_limit: RateLimitInfo,
+}
+
 /// Twitter API v2 users response (for looking up usernames)
 #[derive(Debug, Deserialize)]
 struct UsersResponse {
@@ -187,6 +243,21 @@ pub async fn start_twitter_listener(
     let channel_name = channel.name.clone();
 
     log::info!("Starting Twitter listener for channel: {}", channel_name);
+
+    // SECURITY: Ensure safe_mode is enabled for Twitter channels
+    // Twitter input is untrusted and could contain prompt injection attacks
+    if !channel.safe_mode {
+        log::warn!(
+            "Twitter channel {} does not have safe_mode enabled - enabling now for security",
+            channel_id
+        );
+        // Enable safe_mode on the channel
+        if let Err(e) = db.set_channel_safe_mode(channel_id, true) {
+            log::error!("Failed to enable safe_mode on Twitter channel {}: {}", channel_id, e);
+            // Continue anyway - the dispatcher will check safe_mode per-message
+        }
+    }
+    log::info!("Twitter: Safe mode ENABLED - tool access restricted to Web only");
 
     // Load configuration
     let config = TwitterConfig::from_channel(&channel, &db)?;
@@ -241,12 +312,37 @@ pub async fn start_twitter_listener(
             _ = poll_interval.tick() => {
                 // Poll for new mentions
                 match poll_mentions(&client, &config, since_id.as_deref()).await {
-                    Ok(mentions) => {
-                        if !mentions.is_empty() {
-                            log::info!("Twitter: Found {} new mention(s)", mentions.len());
+                    Ok(poll_result) => {
+                        // Log rate limit status if getting low
+                        if let Some(remaining) = poll_result.rate_limit.remaining {
+                            if remaining <= 3 {
+                                log::warn!(
+                                    "Twitter: Rate limit low ({} remaining), reset in {:?}s",
+                                    remaining,
+                                    poll_result.rate_limit.seconds_until_reset()
+                                );
+                            }
+                        }
+
+                        // Proactive backoff if we're about to hit rate limit
+                        if poll_result.rate_limit.is_rate_limited() {
+                            let wait_secs = poll_result.rate_limit
+                                .seconds_until_reset()
+                                .unwrap_or(300)
+                                .max(60); // Wait at least 60 seconds
+                            log::warn!(
+                                "Twitter: Rate limit exhausted, backing off for {} seconds",
+                                wait_secs
+                            );
+                            tokio::time::sleep(Duration::from_secs(wait_secs)).await;
+                            continue;
+                        }
+
+                        if !poll_result.tweets.is_empty() {
+                            log::info!("Twitter: Found {} new mention(s)", poll_result.tweets.len());
 
                             // Process mentions in chronological order (oldest first)
-                            for mention in mentions.into_iter().rev() {
+                            for mention in poll_result.tweets.into_iter().rev() {
                                 // Skip if already processed (safety check)
                                 if db.is_tweet_processed(&mention.id).unwrap_or(false) {
                                     log::debug!("Twitter: Skipping already processed tweet {}", mention.id);
@@ -326,7 +422,8 @@ pub async fn start_twitter_listener(
                     }
                     Err(e) => {
                         log::error!("Twitter: Error polling mentions: {}", e);
-                        // On rate limit (429), back off
+                        // On rate limit (429), back off with default wait time
+                        // (we couldn't parse headers in error case)
                         if e.contains("429") || e.contains("rate limit") {
                             log::warn!("Twitter: Rate limited, backing off for 5 minutes");
                             tokio::time::sleep(Duration::from_secs(300)).await;
@@ -378,12 +475,12 @@ async fn verify_credentials(
         .ok_or_else(|| "No user data returned".to_string())
 }
 
-/// Poll for new mentions
+/// Poll for new mentions, returning tweets and rate limit info
 async fn poll_mentions(
     client: &reqwest::Client,
     config: &TwitterConfig,
     since_id: Option<&str>,
-) -> Result<Vec<Tweet>, String> {
+) -> Result<PollResult, String> {
     let url = format!(
         "{}/users/{}/mentions",
         TWITTER_API_BASE, config.bot_user_id
@@ -424,6 +521,8 @@ async fn poll_mentions(
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
 
+    // Parse rate limit headers before consuming response body
+    let rate_limit = RateLimitInfo::from_response(&response);
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
 
@@ -443,7 +542,10 @@ async fn poll_mentions(
         return Err(format!("Twitter API errors: {}", error_msg));
     }
 
-    Ok(data.data.unwrap_or_default())
+    Ok(PollResult {
+        tweets: data.data.unwrap_or_default(),
+        rate_limit,
+    })
 }
 
 /// Check if a tweet is a retweet or quote tweet
@@ -494,15 +596,14 @@ fn extract_command_text(text: &str, bot_handle: &str) -> String {
     // Remove @bot_handle (case-insensitive) and any other @mentions at the start
     let mut result = text.to_string();
 
-    // Remove our bot's mention
-    let bot_mention = format!("@{}", bot_handle);
-    result = result.replace(&bot_mention, "");
-    result = result.replace(&bot_mention.to_lowercase(), "");
+    // Remove our bot's mention (case-insensitive using regex)
+    let bot_mention_pattern = Regex::new(&format!(r"(?i)@{}", regex::escape(bot_handle)))
+        .unwrap_or_else(|_| Regex::new(r"(?i)@\w+").unwrap());
+    result = bot_mention_pattern.replace_all(&result, "").to_string();
 
-    // Remove leading @mentions (common in replies)
-    let mention_pattern = regex::Regex::new(r"^\s*@\w+\s*").unwrap();
-    while mention_pattern.is_match(&result) {
-        result = mention_pattern.replace(&result, "").to_string();
+    // Remove leading @mentions (common in replies) using pre-compiled static regex
+    while LEADING_MENTION_PATTERN.is_match(&result) {
+        result = LEADING_MENTION_PATTERN.replace(&result, "").to_string();
     }
 
     result.trim().to_string()
@@ -725,18 +826,37 @@ mod tests {
 
     #[test]
     fn test_extract_command_text() {
+        // Basic case
         assert_eq!(
             extract_command_text("@starkbot hello world", "starkbot"),
             "hello world"
         );
+        // Mixed case - should be case-insensitive
         assert_eq!(
             extract_command_text("@StarkBot what's the price?", "starkbot"),
             "what's the price?"
         );
+        // Fully uppercase
+        assert_eq!(
+            extract_command_text("@STARKBOT test message", "starkbot"),
+            "test message"
+        );
+        // Weird mixed case
+        assert_eq!(
+            extract_command_text("@StArKbOt random case", "starkbot"),
+            "random case"
+        );
+        // Multiple mentions with our bot
         assert_eq!(
             extract_command_text("@user1 @starkbot help me", "starkbot"),
             "help me"
         );
+        // Bot mention in middle of text (should be removed)
+        assert_eq!(
+            extract_command_text("Hey @StarkBot can you help?", "starkbot"),
+            "Hey can you help?"
+        );
+        // Just the mention, no text
         assert_eq!(
             extract_command_text("@starkbot", "starkbot"),
             ""

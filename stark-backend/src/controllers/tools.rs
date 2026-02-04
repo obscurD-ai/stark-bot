@@ -77,6 +77,7 @@ impl From<ToolConfig> for ToolConfigResponse {
             ToolProfile::Secretary => "secretary",
             ToolProfile::Full => "full",
             ToolProfile::Custom => "custom",
+            ToolProfile::SafeMode => "safemode",
         };
         ToolConfigResponse {
             profile: profile_str.to_string(),

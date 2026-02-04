@@ -24,11 +24,13 @@ import Payments from '@/pages/Payments';
 import EIP8004 from '@/pages/EIP8004';
 import CryptoTransactions from '@/pages/CryptoTransactions';
 import MindMap from '@/pages/MindMap';
+import GuestDashboard from '@/pages/GuestDashboard';
 
 function App() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
+      <Route path="/guest_dashboard" element={<GuestDashboard />} />
       <Route element={<Layout />}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/agent-chat" element={<AgentChat />} />

@@ -27,6 +27,7 @@ async fn get_version() -> impl Responder {
 async fn get_config_status(state: web::Data<AppState>) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "login_configured": state.config.login_admin_public_address.is_some(),
-        "burner_wallet_configured": config::burner_wallet_private_key().is_some()
+        "burner_wallet_configured": config::burner_wallet_private_key().is_some(),
+        "guest_dashboard_enabled": config::guest_dashboard_enabled()
     }))
 }

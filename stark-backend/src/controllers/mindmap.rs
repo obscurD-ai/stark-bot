@@ -58,6 +58,25 @@ async fn get_graph(
     }
 }
 
+/// Get the full mind map graph for guest users (no auth required, feature flag controlled)
+async fn get_graph_guest(data: web::Data<AppState>) -> impl Responder {
+    if !crate::config::guest_dashboard_enabled() {
+        return HttpResponse::Forbidden().json(serde_json::json!({
+            "error": "Guest dashboard is not enabled"
+        }));
+    }
+
+    match data.db.get_mind_graph() {
+        Ok(graph) => HttpResponse::Ok().json(graph),
+        Err(e) => {
+            log::error!("Failed to get mind graph for guest: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 /// List all nodes
 async fn list_nodes(
     data: web::Data<AppState>,
@@ -304,6 +323,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/mindmap")
             .route("/graph", web::get().to(get_graph))
+            .route("/graph/guest", web::get().to(get_graph_guest))
             .route("/nodes", web::get().to(list_nodes))
             .route("/nodes", web::post().to(create_node))
             .route("/nodes/{id}", web::get().to(get_node))

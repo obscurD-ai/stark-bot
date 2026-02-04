@@ -4,6 +4,7 @@ const API_BASE = '/api';
 export interface ConfigStatus {
   login_configured: boolean;
   burner_wallet_configured: boolean;
+  guest_dashboard_enabled: boolean;
 }
 
 export async function getConfigStatus(): Promise<ConfigStatus> {
@@ -1584,4 +1585,16 @@ export interface HeartbeatSessionInfo {
 
 export async function getHeartbeatSessions(): Promise<HeartbeatSessionInfo[]> {
   return apiFetch('/mindmap/heartbeat-sessions');
+}
+
+// Guest Mind Map API (no auth required)
+export async function getGuestMindGraph(): Promise<MindGraphResponse> {
+  const response = await fetch(`${API_BASE}/mindmap/graph/guest`);
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error('Guest dashboard is not enabled');
+    }
+    throw new Error('Failed to fetch guest mind graph');
+  }
+  return response.json();
 }

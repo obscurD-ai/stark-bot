@@ -256,6 +256,15 @@ export default function Login() {
                   <p className="text-xs text-slate-500 text-center">
                     Sign in with your Ethereum wallet using SIWE (Sign In With Ethereum)
                   </p>
+
+                  {configStatus?.guest_dashboard_enabled && (
+                    <button
+                      onClick={() => navigate('/guest_dashboard')}
+                      className="w-full text-sm text-slate-400 hover:text-slate-200 py-2 transition-colors"
+                    >
+                      View Guest Dashboard
+                    </button>
+                  )}
                 </>
               )}
             </div>

@@ -22,6 +22,7 @@ import {
   BookOpen,
   Wallet,
   Network,
+  Heart,
 } from 'lucide-react';
 import NavItem from './NavItem';
 import { useAuth } from '@/hooks/useAuth';
@@ -72,6 +73,7 @@ export default function Sidebar() {
             Configuration
           </p>
           <NavItem to="/channels" icon={Monitor} label="Channels" />
+          <NavItem to="/heartbeat" icon={Heart} label="Heartbeat" />
           <NavItem to="/scheduling" icon={Clock} label="Scheduling" />
           <NavItem to="/api-keys" icon={Key} label="API Keys" />
         </div>

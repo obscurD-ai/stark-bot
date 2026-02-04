@@ -478,7 +478,7 @@ export default function MindMap() {
               </span>
             )}
             <button
-              onClick={() => navigate('/bot-settings#heartbeat')}
+              onClick={() => navigate('/heartbeat')}
               className="group cursor-pointer"
               title="Configure heartbeat"
             >

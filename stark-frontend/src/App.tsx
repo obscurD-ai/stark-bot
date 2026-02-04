@@ -9,6 +9,7 @@ import Channels from '@/pages/Channels';
 import Tools from '@/pages/Tools';
 import Skills from '@/pages/Skills';
 import Scheduling from '@/pages/Scheduling';
+import Heartbeat from '@/pages/Heartbeat';
 import Sessions from '@/pages/Sessions';
 import MemoryBrowser from '@/pages/MemoryBrowser';
 import Identities from '@/pages/Identities';
@@ -36,6 +37,7 @@ function App() {
         <Route path="/channels" element={<Channels />} />
         <Route path="/tools" element={<Tools />} />
         <Route path="/skills" element={<Skills />} />
+        <Route path="/heartbeat" element={<Heartbeat />} />
         <Route path="/scheduling" element={<Scheduling />} />
         <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="/sessions" element={<Sessions />} />

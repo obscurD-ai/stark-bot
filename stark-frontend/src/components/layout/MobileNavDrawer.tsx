@@ -24,6 +24,7 @@ import {
   X,
   Wallet,
   Network,
+  Heart,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '@/hooks/useAuth';
@@ -98,6 +99,7 @@ export default function MobileNavDrawer({ isOpen, onClose }: MobileNavDrawerProp
 
   const configItems = [
     { to: '/channels', icon: Monitor, label: 'Channels' },
+    { to: '/heartbeat', icon: Heart, label: 'Heartbeat' },
     { to: '/scheduling', icon: Clock, label: 'Scheduling' },
     { to: '/api-keys', icon: Key, label: 'API Keys' },
   ];

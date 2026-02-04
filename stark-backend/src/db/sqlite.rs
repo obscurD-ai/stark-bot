@@ -492,6 +492,9 @@ impl Database {
             conn.execute("ALTER TABLE skills ADD COLUMN metadata TEXT", [])?;
         }
 
+        // Migration: Add subagent_type column to skills if it doesn't exist
+        let _ = conn.execute("ALTER TABLE skills ADD COLUMN subagent_type TEXT", []);
+
         // Skill scripts table (Python/Bash scripts bundled with skills)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS skill_scripts (
@@ -607,6 +610,16 @@ impl Database {
             )",
             [],
         )?;
+
+        // Migration: Add mind map columns to heartbeat_configs if they don't exist
+        let _ = conn.execute(
+            "ALTER TABLE heartbeat_configs ADD COLUMN current_mind_node_id INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE heartbeat_configs ADD COLUMN last_session_id INTEGER",
+            [],
+        );
 
         // Gmail integration configuration
         conn.execute(

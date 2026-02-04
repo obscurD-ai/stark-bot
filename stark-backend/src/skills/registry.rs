@@ -117,6 +117,7 @@ impl SkillRegistry {
             requires_binaries: metadata.requires_binaries,
             arguments: metadata.arguments,
             tags: metadata.tags,
+            subagent_type: metadata.subagent_type,
             scripts: Vec::new(), // No scripts for plain markdown
         };
 
@@ -141,6 +142,7 @@ impl SkillRegistry {
             requires_binaries: parsed.requires_binaries,
             arguments: parsed.arguments,
             tags: parsed.tags,
+            subagent_type: parsed.subagent_type,
             created_at: now.clone(),
             updated_at: now.clone(),
         };
@@ -263,6 +265,7 @@ impl SkillRegistry {
             requires_binaries: skill.metadata.requires_binaries.clone(),
             arguments: skill.metadata.arguments.clone(),
             tags: skill.metadata.tags.clone(),
+            subagent_type: skill.metadata.subagent_type.clone(),
             created_at: now.clone(),
             updated_at: now,
         };

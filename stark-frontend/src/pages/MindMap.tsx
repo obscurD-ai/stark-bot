@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as d3 from 'd3';
-import { X, Save, Trash2, Menu, Clock, MessageSquare } from 'lucide-react';
+import { X, Save, Trash2, Menu, Clock, MessageSquare, Heart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import {
   getMindGraph,
@@ -9,6 +9,8 @@ import {
   updateMindNode,
   deleteMindNode,
   getHeartbeatSessions,
+  getHeartbeatConfig,
+  updateHeartbeatConfig,
   MindNodeInfo,
   MindConnectionInfo,
   HeartbeatSessionInfo,
@@ -50,6 +52,10 @@ export default function MindMap() {
   // Hover tooltip state
   const [hoveredNode, setHoveredNode] = useState<MindNodeInfo | null>(null);
 
+  // Heartbeat toggle state
+  const [heartbeatEnabled, setHeartbeatEnabled] = useState(false);
+  const [heartbeatLoading, setHeartbeatLoading] = useState(false);
+
   // Load graph data
   const loadGraph = useCallback(async () => {
     try {
@@ -75,10 +81,37 @@ export default function MindMap() {
     }
   }, []);
 
+  // Load heartbeat config
+  const loadHeartbeatConfig = useCallback(async () => {
+    try {
+      const config = await getHeartbeatConfig();
+      if (config) {
+        setHeartbeatEnabled(config.enabled);
+      }
+    } catch (e) {
+      console.error('Failed to load heartbeat config:', e);
+    }
+  }, []);
+
+  // Toggle heartbeat
+  const handleHeartbeatToggle = async () => {
+    setHeartbeatLoading(true);
+    try {
+      const newEnabled = !heartbeatEnabled;
+      await updateHeartbeatConfig({ enabled: newEnabled });
+      setHeartbeatEnabled(newEnabled);
+    } catch (e) {
+      console.error('Failed to toggle heartbeat:', e);
+    } finally {
+      setHeartbeatLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadGraph();
     loadHeartbeatSessions();
-  }, [loadGraph, loadHeartbeatSessions]);
+    loadHeartbeatConfig();
+  }, [loadGraph, loadHeartbeatSessions, loadHeartbeatConfig]);
 
   // Handle click on node to create child
   const handleNodeClick = useCallback(async (node: D3Node) => {
@@ -396,6 +429,26 @@ export default function MindMap() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Heart
+              size={16}
+              className={heartbeatEnabled ? 'text-red-500 fill-red-500' : 'text-gray-500'}
+            />
+            <button
+              onClick={handleHeartbeatToggle}
+              disabled={heartbeatLoading}
+              className={`relative w-10 h-5 rounded-full transition-colors ${
+                heartbeatEnabled ? 'bg-red-500' : 'bg-gray-600'
+              } ${heartbeatLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              title={heartbeatEnabled ? 'Disable heartbeat' : 'Enable heartbeat'}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                  heartbeatEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
           <div className="text-sm text-gray-500">
             {nodes.length} nodes, {connections.length} connections
           </div>
@@ -463,7 +516,7 @@ export default function MindMap() {
                     className="p-3 hover:bg-gray-800 cursor-pointer transition-colors"
                     onMouseEnter={() => setHighlightedNodeId(session.mind_node_id)}
                     onMouseLeave={() => setHighlightedNodeId(null)}
-                    onClick={() => navigate(`/sessions?highlight=${session.id}`)}
+                    onClick={() => navigate(`/sessions/${session.id}`)}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">

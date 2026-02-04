@@ -1,7 +1,7 @@
 ---
 name: discord
 description: "Control Discord: send messages, react, post stickers/emojis, run polls, manage threads/pins, fetch permissions/member/role/channel info, handle moderation."
-version: 2.4.1
+version: 2.5.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🎮"}}
 tags: [discord, social, messaging, communication, social-media]

@@ -504,14 +504,21 @@ async fn update_heartbeat_config(
     req: HttpRequest,
     body: web::Json<UpdateHeartbeatConfigRequest>,
 ) -> HttpResponse {
+    log::info!("[HEARTBEAT] Update requested: enabled={:?}", body.enabled);
+
     if let Err(resp) = validate_session_for_heartbeat(&state, &req) {
+        log::warn!("[HEARTBEAT] Session validation failed for update");
         return resp;
     }
 
     // Get or create first
     let config = match state.db.get_or_create_heartbeat_config(None) {
-        Ok(c) => c,
+        Ok(c) => {
+            log::info!("[HEARTBEAT] Got existing config id={}", c.id);
+            c
+        }
         Err(e) => {
+            log::error!("[HEARTBEAT] Failed to get/create config: {}", e);
             return HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
                 success: false,
                 config: None,
@@ -529,16 +536,22 @@ async fn update_heartbeat_config(
         body.active_days.as_deref(),
         body.enabled,
     ) {
-        Ok(updated) => HttpResponse::Ok().json(HeartbeatConfigResponse {
-            success: true,
-            config: Some(updated),
-            error: None,
-        }),
-        Err(e) => HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
-            success: false,
-            config: None,
-            error: Some(format!("Failed to update config: {}", e)),
-        }),
+        Ok(updated) => {
+            log::info!("[HEARTBEAT] Config updated successfully, enabled={}", updated.enabled);
+            HttpResponse::Ok().json(HeartbeatConfigResponse {
+                success: true,
+                config: Some(updated),
+                error: None,
+            })
+        }
+        Err(e) => {
+            log::error!("[HEARTBEAT] Failed to update config: {}", e);
+            HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
+                success: false,
+                config: None,
+                error: Some(format!("Failed to update config: {}", e)),
+            })
+        }
     }
 }
 
@@ -574,14 +587,21 @@ async fn pulse_heartbeat(
     req: HttpRequest,
     scheduler: web::Data<Arc<Scheduler>>,
 ) -> HttpResponse {
+    log::info!("[HEARTBEAT] Pulse requested");
+
     if let Err(resp) = validate_session_for_heartbeat(&state, &req) {
+        log::warn!("[HEARTBEAT] Session validation failed for pulse");
         return resp;
     }
 
     // Get or create global heartbeat config
     let config = match state.db.get_or_create_heartbeat_config(None) {
-        Ok(c) => c,
+        Ok(c) => {
+            log::info!("[HEARTBEAT] Got config id={}, enabled={}", c.id, c.enabled);
+            c
+        }
         Err(e) => {
+            log::error!("[HEARTBEAT] Failed to get config: {}", e);
             return HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
                 success: false,
                 config: None,
@@ -590,17 +610,26 @@ async fn pulse_heartbeat(
         }
     };
 
+    log::info!("[HEARTBEAT] Running heartbeat now for config {}", config.id);
     match scheduler.run_heartbeat_now(config.id).await {
-        Ok(_) => HttpResponse::Ok().json(HeartbeatConfigResponse {
-            success: true,
-            config: Some(config),
-            error: None,
-        }),
-        Err(e) => HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
-            success: false,
-            config: None,
-            error: Some(e),
-        }),
+        Ok(_) => {
+            log::info!("[HEARTBEAT] Pulse completed successfully");
+            // Re-fetch config to get updated timestamps
+            let updated_config = state.db.get_or_create_heartbeat_config(None).ok();
+            HttpResponse::Ok().json(HeartbeatConfigResponse {
+                success: true,
+                config: updated_config,
+                error: None,
+            })
+        }
+        Err(e) => {
+            log::error!("[HEARTBEAT] Pulse failed: {}", e);
+            HttpResponse::InternalServerError().json(HeartbeatConfigResponse {
+                success: false,
+                config: Some(config),
+                error: Some(e),
+            })
+        }
     }
 }
 

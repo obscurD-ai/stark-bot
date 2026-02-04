@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -36,6 +37,8 @@ const statusConfig: Record<CompletionStatus, { icon: typeof CheckCircle; bg: str
 };
 
 export default function Sessions() {
+  const { sessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [cronJobs, setCronJobs] = useState<Map<string, CronJobInfo>>(new Map());
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
@@ -50,6 +53,17 @@ export default function Sessions() {
   useEffect(() => {
     loadSessions();
   }, []);
+
+  // Auto-load session from URL params
+  useEffect(() => {
+    if (sessionId && sessions.length > 0 && !selectedSession) {
+      const id = parseInt(sessionId, 10);
+      const session = sessions.find(s => s.id === id);
+      if (session) {
+        loadTranscript(session);
+      }
+    }
+  }, [sessionId, sessions]);
 
   // Polling for new messages when viewing a session
   useEffect(() => {
@@ -310,7 +324,10 @@ export default function Sessions() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setSelectedSession(null)}
+            onClick={() => {
+              setSelectedSession(null);
+              navigate('/sessions');
+            }}
             className="mb-4"
           >
             <ChevronLeft className="w-4 h-4 mr-1" />
@@ -484,7 +501,7 @@ export default function Sessions() {
             <Card
               key={session.id}
               className="cursor-pointer hover:border-stark-500/50 transition-colors"
-              onClick={() => loadTranscript(session)}
+              onClick={() => navigate(`/sessions/${session.id}`)}
             >
               <CardContent>
                 {/* Mobile: stacked layout, Desktop: side by side */}

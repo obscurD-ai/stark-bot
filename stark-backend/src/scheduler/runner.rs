@@ -9,6 +9,13 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{interval, Duration as TokioDuration};
 
+/// Constants for heartbeat identity - ensures only ONE identity ever exists
+pub const HEARTBEAT_CHANNEL_TYPE: &str = "heartbeat";
+pub const HEARTBEAT_USER_ID: &str = "heartbeat-system";
+pub const HEARTBEAT_USER_NAME: &str = "Heartbeat";
+/// Fixed chat_id ensures we reuse the same session (no timestamp suffix)
+pub const HEARTBEAT_CHAT_ID: &str = "heartbeat:global";
+
 /// Scheduler configuration
 #[derive(Debug, Clone)]
 pub struct SchedulerConfig {
@@ -484,27 +491,25 @@ impl Scheduler {
             node_content
         );
 
-        // Use a unique chat_id with timestamp to ensure fresh session each heartbeat
-        let chat_id = format!("heartbeat:{}:{}", config.id, now.timestamp());
-
+        // Use fixed constants to ensure only ONE heartbeat identity/session ever exists
         let normalized = NormalizedMessage {
             channel_id: config.channel_id.unwrap_or(0),
-            channel_type: "heartbeat".to_string(),
-            chat_id: chat_id.clone(),
-            user_id: "system".to_string(),
-            user_name: "Heartbeat".to_string(),
+            channel_type: HEARTBEAT_CHANNEL_TYPE.to_string(),
+            chat_id: HEARTBEAT_CHAT_ID.to_string(),
+            user_id: HEARTBEAT_USER_ID.to_string(),
+            user_name: HEARTBEAT_USER_NAME.to_string(),
             text: message_text,
             message_id: Some(format!("heartbeat-{}", now.timestamp())),
-            session_mode: Some("isolated".to_string()),
+            session_mode: None, // Use normal session mode to reuse session
             selected_network: None,
         };
 
         // Execute the heartbeat
         let result = self.dispatcher.dispatch(normalized).await;
 
-        // === GET NEW SESSION ID ===
-        // Query the session that was just created using the session key
-        let session_key = format!("heartbeat:{}:{}", config.channel_id.unwrap_or(0), chat_id);
+        // === GET SESSION ID ===
+        // Query the session using the fixed heartbeat session key
+        let session_key = format!("{}:{}:{}", HEARTBEAT_CHANNEL_TYPE, config.channel_id.unwrap_or(0), HEARTBEAT_CHAT_ID);
         let new_session_id = self.db.get_chat_session_by_key(&session_key)
             .ok()
             .flatten()

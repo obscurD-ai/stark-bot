@@ -135,8 +135,14 @@ impl Orchestrator {
 
     /// Get the system prompt for task planner mode
     pub fn get_planner_prompt(&self) -> String {
+        self.get_planner_prompt_with_skills("No skills available.")
+    }
+
+    /// Get the system prompt for task planner mode with available skills
+    pub fn get_planner_prompt_with_skills(&self, skills_text: &str) -> String {
         include_str!("prompts/task_planner.md")
             .replace("{original_request}", &self.context.original_request)
+            .replace("{available_skills}", skills_text)
     }
 
     /// Get the system prompt

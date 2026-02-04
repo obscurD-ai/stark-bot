@@ -39,6 +39,7 @@ function App() {
         <Route path="/scheduling" element={<Scheduling />} />
         <Route path="/api-keys" element={<ApiKeys />} />
         <Route path="/sessions" element={<Sessions />} />
+        <Route path="/sessions/:sessionId" element={<Sessions />} />
         <Route path="/memories" element={<MemoryBrowser />} />
         <Route path="/mindmap" element={<MindMap />} />
         <Route path="/identities" element={<Identities />} />

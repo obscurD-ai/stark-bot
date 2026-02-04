@@ -1300,10 +1300,22 @@ impl MessageDispatcher {
             // In TaskPlanner mode (first iteration), use only define_tasks tool
             let current_tools = if orchestrator.current_mode() == AgentMode::TaskPlanner && !orchestrator.context().planner_completed {
                 log::info!("[ORCHESTRATED_LOOP] Using TaskPlanner mode tools (define_tasks only)");
-                // Update conversation with planner prompt
+
+                // Load available skills for the planner prompt
+                let skills_text = match self.db.list_enabled_skills() {
+                    Ok(skills) if !skills.is_empty() => {
+                        skills.iter()
+                            .map(|s| format!("- **{}**: {}", s.name, s.description))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    }
+                    _ => "No skills currently available.".to_string(),
+                };
+
+                // Update conversation with planner prompt including skills
                 if let Some(system_msg) = conversation.first_mut() {
                     if system_msg.role == MessageRole::System {
-                        let planner_prompt = orchestrator.get_planner_prompt();
+                        let planner_prompt = orchestrator.get_planner_prompt_with_skills(&skills_text);
                         system_msg.content = planner_prompt;
                     }
                 }

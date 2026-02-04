@@ -17,6 +17,7 @@ pub struct ParsedSkill {
     pub requires_binaries: Vec<String>,
     pub arguments: HashMap<String, SkillArgument>,
     pub tags: Vec<String>,
+    pub subagent_type: Option<String>,
     pub scripts: Vec<ParsedScript>,
 }
 
@@ -144,6 +145,7 @@ pub fn parse_skill_zip(data: &[u8]) -> Result<ParsedSkill, String> {
         requires_binaries: metadata.requires_binaries,
         arguments: metadata.arguments,
         tags: metadata.tags,
+        subagent_type: metadata.subagent_type,
         scripts,
     })
 }

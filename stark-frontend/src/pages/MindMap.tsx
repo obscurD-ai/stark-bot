@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as d3 from 'd3';
-import { X, Save, Trash2 } from 'lucide-react';
+import { X, Save, Trash2, Menu, Clock, MessageSquare } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import {
   getMindGraph,
   createMindNode,
   updateMindNode,
   deleteMindNode,
+  getHeartbeatSessions,
   MindNodeInfo,
   MindConnectionInfo,
+  HeartbeatSessionInfo,
 } from '@/lib/api';
 
 interface D3Node extends d3.SimulationNodeDatum {
@@ -25,6 +28,7 @@ interface D3Link extends d3.SimulationLinkDatum<D3Node> {
 }
 
 export default function MindMap() {
+  const navigate = useNavigate();
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const simulationRef = useRef<d3.Simulation<D3Node, D3Link> | null>(null);
@@ -37,6 +41,14 @@ export default function MindMap() {
   // Modal state for editing node body
   const [editingNode, setEditingNode] = useState<MindNodeInfo | null>(null);
   const [editBody, setEditBody] = useState('');
+
+  // Sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [heartbeatSessions, setHeartbeatSessions] = useState<HeartbeatSessionInfo[]>([]);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<number | null>(null);
+
+  // Hover tooltip state
+  const [hoveredNode, setHoveredNode] = useState<MindNodeInfo | null>(null);
 
   // Load graph data
   const loadGraph = useCallback(async () => {
@@ -53,9 +65,20 @@ export default function MindMap() {
     }
   }, []);
 
+  // Load heartbeat sessions
+  const loadHeartbeatSessions = useCallback(async () => {
+    try {
+      const sessions = await getHeartbeatSessions();
+      setHeartbeatSessions(sessions);
+    } catch (e) {
+      console.error('Failed to load heartbeat sessions:', e);
+    }
+  }, []);
+
   useEffect(() => {
     loadGraph();
-  }, [loadGraph]);
+    loadHeartbeatSessions();
+  }, [loadGraph, loadHeartbeatSessions]);
 
   // Handle click on node to create child
   const handleNodeClick = useCallback(async (node: D3Node) => {
@@ -114,6 +137,24 @@ export default function MindMap() {
       }
     }
   }, []);
+
+  // Format date for display
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      return `${days}d ago`;
+    } else if (hours > 0) {
+      return `${hours}h ago`;
+    } else {
+      const minutes = Math.floor(diff / (1000 * 60));
+      return minutes > 0 ? `${minutes}m ago` : 'just now';
+    }
+  };
 
   // D3 visualization
   useEffect(() => {
@@ -184,13 +225,39 @@ export default function MindMap() {
       .selectAll('g')
       .data(d3Nodes)
       .join('g')
-      .attr('cursor', 'pointer');
+      .attr('cursor', 'pointer')
+      .attr('data-node-id', d => d.id);
+
+    // Helper to get node fill color based on trunk status and body content
+    const getNodeFill = (d: D3Node, hovered = false) => {
+      const hasBody = d.body.trim().length > 0;
+      if (d.is_trunk) {
+        // Trunk: blue if has body, gray-blue if empty
+        return hovered
+          ? (hasBody ? '#60a5fa' : '#94a3b8')  // lighter on hover
+          : (hasBody ? '#3b82f6' : '#64748b');
+      } else {
+        // Regular: white if has body, gray if empty
+        return hovered
+          ? (hasBody ? '#e5e7eb' : '#9ca3af')  // lighter on hover
+          : (hasBody ? '#ffffff' : '#6b7280');
+      }
+    };
+
+    const getNodeStroke = (d: D3Node) => {
+      const hasBody = d.body.trim().length > 0;
+      if (d.is_trunk) {
+        return hasBody ? '#2563eb' : '#475569';
+      } else {
+        return hasBody ? '#888' : '#4b5563';
+      }
+    };
 
     // Node circles
     node.append('circle')
       .attr('r', d => d.is_trunk ? 30 : 20)
-      .attr('fill', d => d.is_trunk ? '#22c55e' : '#ffffff')
-      .attr('stroke', d => d.is_trunk ? '#16a34a' : '#888')
+      .attr('fill', d => getNodeFill(d))
+      .attr('stroke', d => getNodeStroke(d))
       .attr('stroke-width', 2)
       .style('transition', 'r 0.2s ease, fill 0.2s ease');
 
@@ -209,14 +276,19 @@ export default function MindMap() {
         .transition()
         .duration(200)
         .attr('r', d.is_trunk ? 35 : 25)
-        .attr('fill', d.is_trunk ? '#4ade80' : '#e0e0e0');
+        .attr('fill', getNodeFill(d, true));
+      // Show tooltip
+      const nodeInfo = nodes.find(n => n.id === d.id);
+      if (nodeInfo) setHoveredNode(nodeInfo);
     })
     .on('mouseleave', function(_event, d) {
       d3.select(this).select('circle')
         .transition()
         .duration(200)
         .attr('r', d.is_trunk ? 30 : 20)
-        .attr('fill', d.is_trunk ? '#22c55e' : '#ffffff');
+        .attr('fill', getNodeFill(d, false));
+      // Hide tooltip
+      setHoveredNode(null);
     });
 
     // Click handler for creating children
@@ -266,6 +338,37 @@ export default function MindMap() {
     };
   }, [loading, nodes, connections, handleNodeClick, handleNodeRightClick, handleDragEnd]);
 
+  // Effect to highlight nodes when hovering over sessions
+  useEffect(() => {
+    if (!svgRef.current) return;
+
+    const svg = d3.select(svgRef.current);
+
+    // Helper to get stroke color
+    const getStrokeColor = (n: MindNodeInfo) => {
+      const hasBody = n.body.trim().length > 0;
+      if (n.is_trunk) {
+        return hasBody ? '#2563eb' : '#475569';
+      } else {
+        return hasBody ? '#888' : '#4b5563';
+      }
+    };
+
+    // Reset all nodes to default stroke
+    nodes.forEach(n => {
+      svg.selectAll(`g[data-node-id="${n.id}"] circle`)
+        .attr('stroke-width', 2)
+        .attr('stroke', getStrokeColor(n));
+    });
+
+    // Highlight the selected node
+    if (highlightedNodeId !== null) {
+      svg.selectAll(`g[data-node-id="${highlightedNodeId}"] circle`)
+        .attr('stroke', '#f59e0b')
+        .attr('stroke-width', 4);
+    }
+  }, [highlightedNodeId, nodes]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-black">
@@ -292,18 +395,99 @@ export default function MindMap() {
             Click a node to add child. Right-click to edit. Drag to reposition. Scroll to zoom.
           </p>
         </div>
-        <div className="text-sm text-gray-500">
-          {nodes.length} nodes, {connections.length} connections
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-gray-500">
+            {nodes.length} nodes, {connections.length} connections
+          </div>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            title="Heartbeat History"
+          >
+            <Menu size={20} />
+          </button>
         </div>
       </div>
 
-      {/* Canvas */}
-      <div ref={containerRef} className="flex-1 relative overflow-hidden">
-        <svg
-          ref={svgRef}
-          className="w-full h-full"
-          style={{ background: '#000' }}
-        />
+      <div className="flex-1 flex overflow-hidden">
+        {/* Canvas */}
+        <div ref={containerRef} className="flex-1 relative overflow-hidden">
+          <svg
+            ref={svgRef}
+            className="w-full h-full"
+            style={{ background: '#000' }}
+          />
+
+          {/* Hover Tooltip */}
+          {hoveredNode && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 max-w-lg px-4 py-3 bg-gray-900/95 border border-gray-700 rounded-lg shadow-xl pointer-events-none">
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-xs px-2 py-0.5 rounded ${hoveredNode.is_trunk ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                  {hoveredNode.is_trunk ? 'Trunk' : `Node #${hoveredNode.id}`}
+                </span>
+              </div>
+              <p className="text-sm text-white whitespace-pre-wrap break-words">
+                {hoveredNode.body || <span className="text-gray-500 italic">Empty node</span>}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar */}
+        <div
+          className={`w-80 border-l border-gray-800 bg-gray-900 flex flex-col transition-all duration-300 ${
+            sidebarOpen ? 'translate-x-0' : 'translate-x-full w-0 border-l-0'
+          }`}
+          style={{ marginRight: sidebarOpen ? 0 : -320 }}
+        >
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">Heartbeat History</h2>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-1 text-gray-400 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {heartbeatSessions.length === 0 ? (
+              <div className="p-4 text-center text-gray-500">
+                No heartbeat sessions yet
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-800">
+                {heartbeatSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="p-3 hover:bg-gray-800 cursor-pointer transition-colors"
+                    onMouseEnter={() => setHighlightedNodeId(session.mind_node_id)}
+                    onMouseLeave={() => setHighlightedNodeId(null)}
+                    onClick={() => navigate(`/sessions?highlight=${session.id}`)}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Clock size={14} className="text-gray-500" />
+                        <span className="text-sm text-gray-300">
+                          {formatDate(session.created_at)}
+                        </span>
+                      </div>
+                      {session.mind_node_id && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                          Node #{session.mind_node_id}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <MessageSquare size={12} />
+                      <span>{session.message_count} messages</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Edit Modal */}

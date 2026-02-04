@@ -257,6 +257,49 @@ async fn delete_connection(
     }
 }
 
+/// Heartbeat session info for the sidebar
+#[derive(serde::Serialize)]
+struct HeartbeatSessionInfo {
+    id: i64,
+    mind_node_id: Option<i64>,
+    created_at: String,
+    message_count: i64,
+}
+
+/// List recent heartbeat sessions with their associated mind nodes
+async fn list_heartbeat_sessions(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    match data.db.list_heartbeat_sessions(50) {
+        Ok(sessions) => {
+            let results: Vec<HeartbeatSessionInfo> = sessions
+                .into_iter()
+                .map(|(session, node_id)| {
+                    let message_count = data.db.count_session_messages(session.id).unwrap_or(0);
+                    HeartbeatSessionInfo {
+                        id: session.id,
+                        mind_node_id: node_id,
+                        created_at: session.created_at.to_rfc3339(),
+                        message_count,
+                    }
+                })
+                .collect();
+            HttpResponse::Ok().json(results)
+        }
+        Err(e) => {
+            log::error!("Failed to list heartbeat sessions: {}", e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/mindmap")
@@ -267,6 +310,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route("/nodes/{id}", web::put().to(update_node))
             .route("/nodes/{id}", web::delete().to(delete_node))
             .route("/connections", web::get().to(list_connections))
+            .route("/heartbeat-sessions", web::get().to(list_heartbeat_sessions))
             .route("/connections", web::post().to(create_connection))
             .route("/connections/{parent_id}/{child_id}", web::delete().to(delete_connection)),
     );

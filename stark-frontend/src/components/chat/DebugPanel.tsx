@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronRight, DollarSign, Cpu, Clock, Globe, Terminal, Wrench, Brain, CheckCircle, XCircle, Loader2, Zap, Database, ListTodo } from 'lucide-react';
+import { ChevronDown, ChevronRight, DollarSign, Cpu, Clock, Globe, Terminal, Wrench, Brain, CheckCircle, XCircle, Loader2, Zap, Database, ListTodo, FileJson } from 'lucide-react';
 import clsx from 'clsx';
 import { useGateway } from '@/hooks/useGateway';
 import type { ExecutionEvent, X402PaymentEvent } from '@/types';
@@ -155,6 +155,34 @@ interface ContextBankState {
   formatted?: string;
 }
 
+interface AgentContextMessage {
+  role: string;
+  content: string;
+}
+
+interface AgentContextTool {
+  name: string;
+  description: string;
+  group: string;
+}
+
+interface AgentContextToolHistory {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  tool_result: string;
+  tool_use_id: string;
+}
+
+interface AgentContextState {
+  messages: AgentContextMessage[];
+  messages_count: number;
+  tools: AgentContextTool[];
+  tools_count: number;
+  tool_history: AgentContextToolHistory[];
+  tool_history_count: number;
+  timestamp: string;
+}
+
 export default function DebugPanel({ className }: DebugPanelProps) {
   const [executions, setExecutions] = useState<Map<string, DebugTask>>(new Map());
   const [payments, setPayments] = useState<X402PaymentEvent[]>([]);
@@ -162,9 +190,10 @@ export default function DebugPanel({ className }: DebugPanelProps) {
   const [contextBank, setContextBank] = useState<ContextBankState | null>(null);
   const [agentTasks, setAgentTasks] = useState<AgentTasksState | null>(null);
   const [agentToolset, setAgentToolset] = useState<AgentToolsetState | null>(null);
+  const [agentContext, setAgentContext] = useState<AgentContextState | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [toolsCollapsed, setToolsCollapsed] = useState(true);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'payments' | 'registry' | 'agent'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'payments' | 'registry' | 'agent' | 'context'>('tasks');
   const [, forceUpdate] = useState(0);
   const { on, off } = useGateway();
 
@@ -449,6 +478,19 @@ export default function DebugPanel({ className }: DebugPanelProps) {
     });
   }, []);
 
+  const handleAgentContextUpdate = useCallback((data: unknown) => {
+    const event = data as AgentContextState;
+    setAgentContext({
+      messages: event.messages || [],
+      messages_count: event.messages_count || 0,
+      tools: event.tools || [],
+      tools_count: event.tools_count || 0,
+      tool_history: event.tool_history || [],
+      tool_history_count: event.tool_history_count || 0,
+      timestamp: event.timestamp,
+    });
+  }, []);
+
   useEffect(() => {
     on('execution.started', handleExecutionStarted);
     on('execution.thinking', handleExecutionThinking);
@@ -463,6 +505,7 @@ export default function DebugPanel({ className }: DebugPanelProps) {
     on('context_bank.update', handleContextBankUpdate);
     on('agent.tasks_update', handleAgentTasksUpdate);
     on('agent.toolset_update', handleAgentToolsetUpdate);
+    on('agent.context_update', handleAgentContextUpdate);
 
     return () => {
       off('execution.started', handleExecutionStarted);
@@ -478,8 +521,9 @@ export default function DebugPanel({ className }: DebugPanelProps) {
       off('context_bank.update', handleContextBankUpdate);
       off('agent.tasks_update', handleAgentTasksUpdate);
       off('agent.toolset_update', handleAgentToolsetUpdate);
+      off('agent.context_update', handleAgentContextUpdate);
     };
-  }, [on, off, handleExecutionStarted, handleExecutionThinking, handleTaskStarted, handleTaskUpdated, handleTaskCompleted, handleExecutionCompleted, handleToolExecution, handleToolResult, handleX402Payment, handleRegisterUpdate, handleContextBankUpdate, handleAgentTasksUpdate, handleAgentToolsetUpdate]);
+  }, [on, off, handleExecutionStarted, handleExecutionThinking, handleTaskStarted, handleTaskUpdated, handleTaskCompleted, handleExecutionCompleted, handleToolExecution, handleToolResult, handleX402Payment, handleRegisterUpdate, handleContextBankUpdate, handleAgentTasksUpdate, handleAgentToolsetUpdate, handleAgentContextUpdate]);
 
   const toggleCollapse = (taskId: string) => {
     setCollapsed((prev) => {
@@ -780,6 +824,23 @@ export default function DebugPanel({ className }: DebugPanelProps) {
               </>
             )}
           </span>
+        </button>
+        <button
+          onClick={() => setActiveTab('context')}
+          className={clsx(
+            'flex-1 px-4 py-2 text-sm font-medium transition-colors',
+            activeTab === 'context'
+              ? 'bg-slate-800 text-white border-b-2 border-pink-500'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          )}
+        >
+          <FileJson className="w-4 h-4 inline mr-2" />
+          Context
+          {agentContext && (
+            <span className="ml-2 text-xs text-pink-400">
+              {agentContext.messages_count} msgs
+            </span>
+          )}
         </button>
       </div>
 
@@ -1113,6 +1174,59 @@ export default function DebugPanel({ className }: DebugPanelProps) {
                   })}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'context' && (
+          <div className="p-2">
+            {!agentContext ? (
+              <div className="text-center text-slate-500 py-8">
+                <FileJson className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p>No context yet</p>
+                <p className="text-xs mt-1">Send a message to see the AI context</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Timestamp */}
+                <div className="text-xs text-slate-500 text-right">
+                  Last updated: {formatTimestamp(agentContext.timestamp)}
+                </div>
+
+                {/* Summary Stats */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-2 bg-slate-800 rounded">
+                    <div className="text-lg font-bold text-pink-400">{agentContext.messages_count}</div>
+                    <div className="text-xs text-slate-500">Messages</div>
+                  </div>
+                  <div className="p-2 bg-slate-800 rounded">
+                    <div className="text-lg font-bold text-purple-400">{agentContext.tools_count}</div>
+                    <div className="text-xs text-slate-500">Tools</div>
+                  </div>
+                  <div className="p-2 bg-slate-800 rounded">
+                    <div className="text-lg font-bold text-cyan-400">{agentContext.tool_history_count}</div>
+                    <div className="text-xs text-slate-500">History</div>
+                  </div>
+                </div>
+
+                {/* Full JSON Context */}
+                <div className="p-3 bg-slate-800 rounded-lg border border-slate-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-pink-400">Full Context (JSON)</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(agentContext, null, 2));
+                      }}
+                      className="text-xs px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <pre className="text-xs text-slate-300 bg-slate-900 p-3 rounded overflow-auto max-h-[500px] font-mono whitespace-pre-wrap">
+                    {JSON.stringify(agentContext, null, 2)}
+                  </pre>
+                </div>
+              </div>
             )}
           </div>
         )}

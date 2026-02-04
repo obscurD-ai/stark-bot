@@ -386,7 +386,7 @@ impl Scheduler {
         true
     }
 
-    /// Execute a heartbeat check
+    /// Execute a heartbeat check - now with mind map meandering
     async fn execute_heartbeat(&self, config: &HeartbeatConfig) -> Result<(), String> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
@@ -394,32 +394,103 @@ impl Scheduler {
         log::info!("Executing heartbeat (config_id: {})", config.id);
 
         // IMPORTANT: Calculate and set next_beat_at BEFORE execution to prevent race conditions
-        // where the same heartbeat could be picked up twice if execution takes longer than poll interval
         let next_beat = now + Duration::minutes(config.interval_minutes as i64);
         let next_beat_str = next_beat.to_rfc3339();
         if let Err(e) = self.db.update_heartbeat_next_beat(config.id, &next_beat_str) {
             log::error!("Failed to update heartbeat next_beat_at: {}", e);
-            // Continue anyway - the heartbeat should still run
         }
 
-        // Broadcast heartbeat start event
+        // === MIND MAP MEANDERING ===
+        // Get the next node to visit (starts at trunk, then meanders)
+        let next_node = self.db.get_next_heartbeat_node(config.current_mind_node_id)
+            .map_err(|e| format!("Failed to get next heartbeat node: {}", e))?;
+
+        let node_depth = self.db.get_mind_node_depth(next_node.id).unwrap_or(0);
+
+        log::info!(
+            "Heartbeat visiting mind node {} (depth: {}, is_trunk: {}, body_len: {})",
+            next_node.id, node_depth, next_node.is_trunk, next_node.body.len()
+        );
+
+        // === GET PREVIOUS HEARTBEAT CONTEXT ===
+        let previous_context = if let Some(last_session_id) = config.last_session_id {
+            match self.db.get_recent_session_messages(last_session_id, 6) {
+                Ok(messages) => {
+                    if messages.is_empty() {
+                        String::new()
+                    } else {
+                        let mut ctx = String::from("\n--- Previous Heartbeat Context ---\n");
+                        for msg in messages {
+                            let role = msg.role.as_str();
+                            let content_preview = if msg.content.len() > 500 {
+                                format!("{}...", &msg.content[..500])
+                            } else {
+                                msg.content.clone()
+                            };
+                            ctx.push_str(&format!("[{}]: {}\n", role, content_preview));
+                        }
+                        ctx.push_str("--- End Previous Context ---\n\n");
+                        ctx
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to get previous heartbeat context: {}", e);
+                    String::new()
+                }
+            }
+        } else {
+            String::new()
+        };
+
+        // Broadcast heartbeat start event with node info
         self.broadcaster.broadcast(GatewayEvent::custom(
             "heartbeat_started",
             serde_json::json!({
                 "config_id": config.id,
                 "channel_id": config.channel_id,
+                "mind_node_id": next_node.id,
+                "mind_node_depth": node_depth,
+                "is_trunk": next_node.is_trunk,
             }),
         ));
 
-        // Build heartbeat message
-        let message_text = "[HEARTBEAT] Periodic check - review any pending tasks, notifications, or scheduled items.".to_string();
+        // === BUILD HEARTBEAT MESSAGE ===
+        let node_content = if next_node.body.is_empty() {
+            if next_node.is_trunk {
+                "This is the trunk node (root of your mind map). It's currently empty.".to_string()
+            } else {
+                "This node is currently empty.".to_string()
+            }
+        } else {
+            next_node.body.clone()
+        };
 
-        // Create a normalized message for the dispatcher
-        // Heartbeats use isolated sessions by default
+        let message_text = format!(
+            "[HEARTBEAT - Mind Map Reflection]\n\
+            {}\
+            Current Position: Node #{} (depth: {}{})\n\
+            Node Content: {}\n\n\
+            Instructions:\n\
+            - Reflect on this node's content in the context of your mind map\n\
+            - Consider connections to other thoughts and ideas\n\
+            - If the node is empty, consider what thoughts belong here\n\
+            - You may update this node's content or create new connected nodes\n\
+            - Review any pending tasks or items that relate to this area\n\
+            - Respond with HEARTBEAT_OK if no action needed",
+            previous_context,
+            next_node.id,
+            node_depth,
+            if next_node.is_trunk { ", trunk" } else { "" },
+            node_content
+        );
+
+        // Use a unique chat_id with timestamp to ensure fresh session each heartbeat
+        let chat_id = format!("heartbeat:{}:{}", config.id, now.timestamp());
+
         let normalized = NormalizedMessage {
             channel_id: config.channel_id.unwrap_or(0),
             channel_type: "heartbeat".to_string(),
-            chat_id: format!("heartbeat:{}", config.id),
+            chat_id: chat_id.clone(),
             user_id: "system".to_string(),
             user_name: "Heartbeat".to_string(),
             text: message_text,
@@ -431,8 +502,24 @@ impl Scheduler {
         // Execute the heartbeat
         let result = self.dispatcher.dispatch(normalized).await;
 
-        // Note: next_beat_at was already set at the start to prevent race conditions
-        // Update last_beat_at with final execution time
+        // === GET NEW SESSION ID ===
+        // Query the session that was just created using the session key
+        let session_key = format!("heartbeat:{}:{}", config.channel_id.unwrap_or(0), chat_id);
+        let new_session_id = self.db.get_chat_session_by_key(&session_key)
+            .ok()
+            .flatten()
+            .map(|s| s.id);
+
+        // Update heartbeat config with new mind position and session ID
+        if let Err(e) = self.db.update_heartbeat_mind_position(
+            config.id,
+            Some(next_node.id),
+            new_session_id,
+        ) {
+            log::error!("Failed to update heartbeat mind position: {}", e);
+        }
+
+        // Update last_beat_at
         self.db
             .update_heartbeat_last_beat(config.id, &now_str, &next_beat_str)
             .map_err(|e| format!("Failed to update heartbeat status: {}", e))?;
@@ -448,11 +535,15 @@ impl Scheduler {
             serde_json::json!({
                 "config_id": config.id,
                 "channel_id": config.channel_id,
+                "mind_node_id": next_node.id,
                 "success": result.error.is_none(),
             }),
         ));
 
-        log::info!("Heartbeat completed (config_id: {})", config.id);
+        log::info!(
+            "Heartbeat completed (config_id: {}, visited node: {})",
+            config.id, next_node.id
+        );
 
         Ok(())
     }

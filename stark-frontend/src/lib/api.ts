@@ -1538,3 +1538,15 @@ export async function deleteMindConnection(parentId: number, childId: number): P
     method: 'DELETE',
   });
 }
+
+// Heartbeat session info for mind map sidebar
+export interface HeartbeatSessionInfo {
+  id: number;
+  mind_node_id: number | null;
+  created_at: string;
+  message_count: number;
+}
+
+export async function getHeartbeatSessions(): Promise<HeartbeatSessionInfo[]> {
+  return apiFetch('/mindmap/heartbeat-sessions');
+}

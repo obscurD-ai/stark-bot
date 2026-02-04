@@ -299,6 +299,122 @@ impl Database {
         Ok(nodes)
     }
 
+    /// Get all neighbors of a node (both parent and child connections)
+    pub fn get_mind_node_neighbors(&self, node_id: i64) -> SqliteResult<Vec<MindNode>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get all connected nodes (both as parent or child in connections)
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT n.id, n.body, n.position_x, n.position_y, n.is_trunk, n.created_at, n.updated_at
+             FROM mind_nodes n
+             WHERE n.id IN (
+                 SELECT child_id FROM mind_node_connections WHERE parent_id = ?1
+                 UNION
+                 SELECT parent_id FROM mind_node_connections WHERE child_id = ?1
+             )",
+        )?;
+
+        let nodes = stmt
+            .query_map([node_id], |row| Self::row_to_mind_node(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(nodes)
+    }
+
+    /// Get the next node for heartbeat meandering
+    /// - If current_id is None, returns the trunk node (first heartbeat)
+    /// - Otherwise, randomly stays at current node (~40%) or hops to a neighbor (~60%)
+    /// - This naturally biases toward central nodes (more connections = more paths there)
+    pub fn get_next_heartbeat_node(&self, current_id: Option<i64>) -> SqliteResult<MindNode> {
+        use rand::Rng;
+
+        // If no current position, start at trunk
+        let current_id = match current_id {
+            Some(id) => id,
+            None => {
+                let trunk = self.get_or_create_trunk_node()?;
+                return Ok(trunk);
+            }
+        };
+
+        // Get current node
+        let current_node = self.get_mind_node(current_id)?;
+        let current_node = match current_node {
+            Some(n) => n,
+            None => {
+                // Node was deleted, return to trunk
+                return self.get_or_create_trunk_node();
+            }
+        };
+
+        // Get neighbors
+        let neighbors = self.get_mind_node_neighbors(current_id)?;
+
+        // If no neighbors, stay at current node
+        if neighbors.is_empty() {
+            return Ok(current_node);
+        }
+
+        // Random decision: 40% stay, 60% hop (biases toward exploration)
+        let mut rng = rand::thread_rng();
+
+        // gen_bool(p) returns true with probability p
+        // We want 40% chance to stay, so gen_bool(0.4) = true means stay
+        if rng.gen_bool(0.4) {
+            // Stay at current node
+            Ok(current_node)
+        } else {
+            // Hop to a random neighbor
+            let idx = rng.gen_range(0..neighbors.len());
+            Ok(neighbors.into_iter().nth(idx).unwrap())
+        }
+    }
+
+    /// Calculate the depth (distance from trunk) of a node
+    /// Used for context - nodes closer to trunk are more "central" thoughts
+    pub fn get_mind_node_depth(&self, node_id: i64) -> SqliteResult<i32> {
+        let conn = self.conn.lock().unwrap();
+
+        // BFS to find shortest path to trunk
+        let trunk_id: Option<i64> = conn.query_row(
+            "SELECT id FROM mind_nodes WHERE is_trunk = 1 LIMIT 1",
+            [],
+            |row| row.get(0),
+        ).ok();
+
+        let trunk_id = match trunk_id {
+            Some(id) => id,
+            None => return Ok(0), // No trunk, assume depth 0
+        };
+
+        if node_id == trunk_id {
+            return Ok(0);
+        }
+
+        // Simple BFS using recursive CTE
+        let depth: Option<i32> = conn.query_row(
+            "WITH RECURSIVE path(node_id, depth) AS (
+                SELECT ?1, 0
+                UNION ALL
+                SELECT
+                    CASE
+                        WHEN c.parent_id = p.node_id THEN c.child_id
+                        ELSE c.parent_id
+                    END,
+                    p.depth + 1
+                FROM path p
+                JOIN mind_node_connections c ON (c.parent_id = p.node_id OR c.child_id = p.node_id)
+                WHERE p.depth < 100
+            )
+            SELECT MIN(depth) FROM path WHERE node_id = ?2",
+            rusqlite::params![trunk_id, node_id],
+            |row| row.get(0),
+        ).ok().flatten();
+
+        Ok(depth.unwrap_or(0))
+    }
+
     fn row_to_mind_node(row: &rusqlite::Row) -> rusqlite::Result<MindNode> {
         let created_at_str: String = row.get(5)?;
         let updated_at_str: String = row.get(6)?;

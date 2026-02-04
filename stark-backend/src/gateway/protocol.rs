@@ -49,6 +49,7 @@ pub enum EventType {
     // Multi-agent task events
     AgentTasksUpdate,
     AgentToolsetUpdate,  // Current tools available to agent
+    AgentContextUpdate,  // Full context sent to AI model (for debug panel)
     // Sub-agent events
     SubagentSpawned,
     SubagentCompleted,
@@ -118,6 +119,7 @@ impl EventType {
             Self::ContextBankUpdate => "context_bank.update",
             Self::AgentTasksUpdate => "agent.tasks_update",
             Self::AgentToolsetUpdate => "agent.toolset_update",
+            Self::AgentContextUpdate => "agent.context_update",
             Self::SubagentSpawned => "subagent.spawned",
             Self::SubagentCompleted => "subagent.completed",
             Self::SubagentFailed => "subagent.failed",
@@ -837,6 +839,67 @@ impl GatewayEvent {
                 "subtype": subtype,
                 "tools": tools,
                 "count": tools.len(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }),
+        )
+    }
+
+    /// Full AI context update - broadcast the exact context sent to the AI model
+    /// Used by the debug panel to show what the AI sees
+    pub fn agent_context_update(
+        channel_id: i64,
+        session_id: i64,
+        messages: &[crate::ai::Message],
+        tools: &[crate::tools::ToolDefinition],
+        tool_history: &[crate::ai::ToolHistoryEntry],
+    ) -> Self {
+        // Convert messages to JSON-serializable format
+        let messages_json: Vec<Value> = messages
+            .iter()
+            .map(|m| {
+                serde_json::json!({
+                    "role": format!("{:?}", m.role),
+                    "content": m.content,
+                })
+            })
+            .collect();
+
+        // Convert tools to JSON-serializable format
+        let tools_json: Vec<Value> = tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "group": format!("{:?}", t.group),
+                })
+            })
+            .collect();
+
+        // Convert tool history to JSON-serializable format
+        let tool_history_json: Vec<Value> = tool_history
+            .iter()
+            .map(|h| {
+                serde_json::json!({
+                    "tool_name": h.tool_name,
+                    "tool_input": h.tool_input,
+                    "tool_result": h.tool_result,
+                    "tool_use_id": h.tool_use_id,
+                })
+            })
+            .collect();
+
+        Self::new(
+            EventType::AgentContextUpdate,
+            serde_json::json!({
+                "channel_id": channel_id,
+                "session_id": session_id,
+                "messages": messages_json,
+                "messages_count": messages.len(),
+                "tools": tools_json,
+                "tools_count": tools.len(),
+                "tool_history": tool_history_json,
+                "tool_history_count": tool_history.len(),
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

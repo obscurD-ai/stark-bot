@@ -244,6 +244,10 @@ pub struct HeartbeatConfig {
     pub enabled: bool,
     pub last_beat_at: Option<String>,
     pub next_beat_at: Option<String>,
+    /// Current position in mind map (for meandering)
+    pub current_mind_node_id: Option<i64>,
+    /// Last heartbeat session ID (for context continuity)
+    pub last_session_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }

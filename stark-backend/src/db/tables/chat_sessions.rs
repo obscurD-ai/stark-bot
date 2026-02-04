@@ -544,6 +544,64 @@ impl Database {
         })
     }
 
+    /// List heartbeat sessions with their associated mind node IDs
+    /// Parses the node ID from the heartbeat message content
+    pub fn list_heartbeat_sessions(&self, limit: i32) -> SqliteResult<Vec<(ChatSession, Option<i64>)>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get heartbeat sessions ordered by most recent first
+        let mut stmt = conn.prepare(
+            "SELECT id, session_key, agent_id, scope, channel_type, channel_id, platform_chat_id,
+             is_active, reset_policy, idle_timeout_minutes, daily_reset_hour,
+             created_at, updated_at, last_activity_at, expires_at, context_tokens, max_context_tokens, compaction_id, completion_status
+             FROM chat_sessions
+             WHERE channel_type = 'heartbeat'
+             ORDER BY created_at DESC
+             LIMIT ?1",
+        )?;
+
+        let sessions: Vec<ChatSession> = stmt
+            .query_map([limit], |row| Self::row_to_chat_session(row))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        drop(stmt);
+
+        // For each session, try to extract the mind node ID from the first message
+        let mut results = Vec::new();
+        for session in sessions {
+            let node_id = self.extract_heartbeat_node_id(&conn, session.id);
+            results.push((session, node_id));
+        }
+
+        Ok(results)
+    }
+
+    /// Extract the mind node ID from a heartbeat session's first message
+    /// Looks for pattern "Current Position: Node #X" in the message
+    fn extract_heartbeat_node_id(&self, conn: &std::sync::MutexGuard<'_, rusqlite::Connection>, session_id: i64) -> Option<i64> {
+        let content: Option<String> = conn.query_row(
+            "SELECT content FROM session_messages
+             WHERE session_id = ?1 AND role = 'user'
+             ORDER BY created_at ASC LIMIT 1",
+            [session_id],
+            |row| row.get(0),
+        ).ok();
+
+        content.and_then(|text| {
+            // Parse "Current Position: Node #123" pattern
+            if let Some(start) = text.find("Current Position: Node #") {
+                let after_hash = start + "Current Position: Node #".len();
+                let rest = &text[after_hash..];
+                // Find the end of the number (space, comma, or parenthesis)
+                let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+                rest[..end].parse::<i64>().ok()
+            } else {
+                None
+            }
+        })
+    }
+
     fn row_to_session_message(row: &rusqlite::Row) -> rusqlite::Result<SessionMessage> {
         let created_at_str: String = row.get(8)?;
         let role_str: String = row.get(2)?;

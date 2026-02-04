@@ -3100,6 +3100,15 @@ impl MessageDispatcher {
         // Get cancellation token for immediate interruption
         let cancel_token = self.execution_tracker.get_cancellation_token(channel_id);
 
+        // Broadcast the full context being sent to the AI (for debug panel)
+        broadcaster.broadcast(GatewayEvent::agent_context_update(
+            channel_id,
+            session_id,
+            &conversation,
+            &tools,
+            &tool_history,
+        ));
+
         // Spawn the actual AI request
         let ai_future = client.generate_with_tools(conversation, tool_history, tools.clone());
         tokio::pin!(ai_future);

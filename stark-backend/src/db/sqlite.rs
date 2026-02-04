@@ -593,9 +593,12 @@ impl Database {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 last_beat_at TEXT,
                 next_beat_at TEXT,
+                current_mind_node_id INTEGER,
+                last_session_id INTEGER,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE CASCADE
+                FOREIGN KEY (channel_id) REFERENCES external_channels(id) ON DELETE CASCADE,
+                FOREIGN KEY (current_mind_node_id) REFERENCES mind_nodes(id) ON DELETE SET NULL
             )",
             [],
         )?;

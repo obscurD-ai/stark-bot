@@ -15,7 +15,8 @@ impl Database {
         let existing = if let Some(cid) = channel_id {
             conn.query_row(
                 "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                        active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                        active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                        created_at, updated_at
                  FROM heartbeat_configs WHERE channel_id = ?1",
                 [cid],
                 |row| self.map_heartbeat_config_row(row),
@@ -23,7 +24,8 @@ impl Database {
         } else {
             conn.query_row(
                 "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                        active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                        active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                        created_at, updated_at
                  FROM heartbeat_configs WHERE channel_id IS NULL",
                 [],
                 |row| self.map_heartbeat_config_row(row),
@@ -56,6 +58,8 @@ impl Database {
             enabled: false,  // Disabled by default - must be explicitly enabled
             last_beat_at: None,
             next_beat_at: None,
+            current_mind_node_id: None,
+            last_session_id: None,
             created_at: now.clone(),
             updated_at: now,
         })
@@ -73,8 +77,10 @@ impl Database {
             enabled: row.get::<_, i32>(7)? != 0,
             last_beat_at: row.get(8)?,
             next_beat_at: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            current_mind_node_id: row.get(10)?,
+            last_session_id: row.get(11)?,
+            created_at: row.get(12)?,
+            updated_at: row.get(13)?,
         })
     }
 
@@ -122,7 +128,8 @@ impl Database {
 
         conn.query_row(
             "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                    active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                    created_at, updated_at
              FROM heartbeat_configs WHERE id = ?1",
             [id],
             |row| self.map_heartbeat_config_row(row),
@@ -160,7 +167,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                    active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                    created_at, updated_at
              FROM heartbeat_configs ORDER BY id"
         )?;
 
@@ -178,7 +186,8 @@ impl Database {
 
         conn.query_row(
             "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                    active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                    created_at, updated_at
              FROM heartbeat_configs WHERE id = ?1",
             [id],
             |row| self.map_heartbeat_config_row(row),
@@ -192,7 +201,8 @@ impl Database {
 
         let mut stmt = conn.prepare(
             "SELECT id, channel_id, interval_minutes, target, active_hours_start, active_hours_end,
-                    active_days, enabled, last_beat_at, next_beat_at, created_at, updated_at
+                    active_days, enabled, last_beat_at, next_beat_at, current_mind_node_id, last_session_id,
+                    created_at, updated_at
              FROM heartbeat_configs
              WHERE enabled = 1 AND (next_beat_at IS NULL OR next_beat_at <= ?1)
              ORDER BY next_beat_at ASC"
@@ -204,5 +214,23 @@ impl Database {
             .collect();
 
         Ok(configs)
+    }
+
+    /// Update heartbeat mind map position and session after execution
+    pub fn update_heartbeat_mind_position(
+        &self,
+        id: i64,
+        current_mind_node_id: Option<i64>,
+        last_session_id: Option<i64>,
+    ) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE heartbeat_configs SET current_mind_node_id = ?1, last_session_id = ?2, updated_at = ?3 WHERE id = ?4",
+            rusqlite::params![current_mind_node_id, last_session_id, now, id],
+        )?;
+
+        Ok(())
     }
 }

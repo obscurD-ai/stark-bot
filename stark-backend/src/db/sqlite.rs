@@ -277,6 +277,8 @@ impl Database {
         let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN last_flush_at TEXT", []);
         // Task planner: Add completion_status column
         let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN completion_status TEXT NOT NULL DEFAULT 'active'", []);
+        // QMD Memory: Add compaction_summary to store summary text directly
+        let _ = conn.execute("ALTER TABLE chat_sessions ADD COLUMN compaction_summary TEXT", []);
 
         // Session messages table - conversation transcripts
         conn.execute(

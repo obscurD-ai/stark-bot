@@ -651,28 +651,28 @@ impl Database {
     }
 
     /// Get the compaction summary for a session (if any)
+    /// Now reads from the compaction_summary column directly instead of memories table.
     pub fn get_session_compaction_summary(&self, session_id: i64) -> SqliteResult<Option<String>> {
         let conn = self.conn.lock().unwrap();
 
-        // First get the compaction_id from the session
-        let compaction_id: Option<i64> = conn.query_row(
-            "SELECT compaction_id FROM chat_sessions WHERE id = ?1",
+        let summary: Option<String> = conn.query_row(
+            "SELECT compaction_summary FROM chat_sessions WHERE id = ?1",
             [session_id],
             |row| row.get(0),
         ).ok().flatten();
 
-        let Some(compaction_id) = compaction_id else {
-            return Ok(None);
-        };
+        Ok(summary)
+    }
 
-        // Get the compaction memory content
-        let content: Option<String> = conn.query_row(
-            "SELECT content FROM memories WHERE id = ?1",
-            [compaction_id],
-            |row| row.get(0),
-        ).ok();
-
-        Ok(content)
+    /// Set the compaction summary text for a session
+    pub fn set_session_compaction_summary(&self, session_id: i64, summary: &str) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE chat_sessions SET compaction_summary = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![summary, &now, session_id],
+        )?;
+        Ok(())
     }
 
     /// Update the last_flush_at timestamp for a session (Phase 1: pre-compaction flush)

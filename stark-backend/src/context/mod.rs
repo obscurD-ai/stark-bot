@@ -9,10 +9,10 @@
 use crate::ai::{AiClient, Message, MessageRole};
 use crate::config::MemoryConfig;
 use crate::db::Database;
-use crate::models::{MemoryType, SessionMessage};
+use crate::models::SessionMessage;
 use crate::models::session_message::MessageRole as DbMessageRole;
+use crate::qmd_memory::MemoryStore;
 use chrono::Utc;
-use regex::Regex;
 use std::sync::Arc;
 
 /// Default context window size (Claude 3.5 Sonnet)
@@ -57,6 +57,8 @@ pub struct ContextManager {
     keep_recent_messages: i32,
     /// Memory configuration
     memory_config: MemoryConfig,
+    /// QMD Memory store for file-based memory
+    memory_store: Option<Arc<MemoryStore>>,
 }
 
 impl ContextManager {
@@ -67,6 +69,7 @@ impl ContextManager {
             reserve_tokens: DEFAULT_RESERVE_TOKENS,
             keep_recent_messages: DEFAULT_KEEP_RECENT_MESSAGES,
             memory_config: MemoryConfig::from_env(),
+            memory_store: None,
         }
     }
 
@@ -87,6 +90,11 @@ impl ContextManager {
 
     pub fn with_memory_config(mut self, config: MemoryConfig) -> Self {
         self.memory_config = config;
+        self
+    }
+
+    pub fn with_memory_store(mut self, store: Arc<MemoryStore>) -> Self {
+        self.memory_store = Some(store);
         self
     }
 
@@ -126,16 +134,26 @@ impl ContextManager {
     /// Phase 1: Flush memories before compaction
     /// Gives the AI a "silent turn" to extract important memories from the conversation
     /// that would otherwise be lost during summarization.
+    /// Now writes to QMD markdown files instead of database.
     pub async fn flush_memories_before_compaction(
         &self,
         session_id: i64,
         client: &AiClient,
         identity_id: Option<&str>,
         messages_to_compact: &[SessionMessage],
-    ) -> Result<Vec<i64>, String> {
+    ) -> Result<usize, String> {
         if messages_to_compact.is_empty() {
-            return Ok(vec![]);
+            return Ok(0);
         }
+
+        // Check if we have a memory store
+        let memory_store = match &self.memory_store {
+            Some(store) => store,
+            None => {
+                log::warn!("[PRE_FLUSH] No memory store available, skipping memory flush");
+                return Ok(0);
+            }
+        };
 
         log::info!("[PRE_FLUSH] Starting memory flush for session {} ({} messages)",
             session_id, messages_to_compact.len());
@@ -155,15 +173,14 @@ impl ContextManager {
             .collect::<Vec<_>>()
             .join("\n\n");
 
-        // Prompt the AI to extract memories
+        // Prompt the AI to extract memories - simplified for markdown output
         let flush_prompt = format!(
-            "Before this conversation history is summarized and archived, extract any important information that should be remembered. \
-            Use these markers to save memories:\n\n\
-            - [PREFERENCE: description] - User preferences (e.g., coding style, communication preferences)\n\
-            - [FACT: description] - Facts about the user (e.g., name, job, location)\n\
-            - [TASK: description] - Commitments, todos, or tasks mentioned\n\
-            - [REMEMBER: description] - Any other important information worth remembering\n\
-            - [REMEMBER_IMPORTANT: description] - Critical information that must be preserved\n\n\
+            "Before this conversation history is summarized, extract any important information that should be remembered.\n\n\
+            Format your response as markdown with sections:\n\
+            ## Long-Term (facts, preferences, important info)\n\
+            - bullet points\n\n\
+            ## Daily Activity (what was done today)\n\
+            - bullet points\n\n\
             Only extract genuinely important information. Don't save trivial details.\n\
             If nothing important needs to be saved, respond with just: NO_MEMORIES_NEEDED\n\n\
             Conversation to analyze:\n{}\n\n\
@@ -174,7 +191,7 @@ impl ContextManager {
         let flush_messages = vec![
             Message {
                 role: MessageRole::System,
-                content: "You are a memory extraction assistant. Analyze conversations and extract important information that should be preserved as long-term memories.".to_string(),
+                content: "You are a memory extraction assistant. Extract important information from conversations and format it as markdown.".to_string(),
             },
             Message {
                 role: MessageRole::User,
@@ -187,84 +204,56 @@ impl ContextManager {
 
         if response.contains("NO_MEMORIES_NEEDED") {
             log::info!("[PRE_FLUSH] No memories to extract for session {}", session_id);
-            return Ok(vec![]);
+            return Ok(0);
         }
 
-        // Parse and create memories from the response
-        let created_ids = self.parse_and_create_flush_memories(
-            &response,
-            identity_id,
-            session_id,
-        )?;
+        // Parse and write to markdown files
+        let mut count = 0;
 
-        log::info!("[PRE_FLUSH] Extracted {} memories for session {}", created_ids.len(), session_id);
+        // Extract long-term section
+        if let Some(long_term_start) = response.find("## Long-Term") {
+            let section_end = response[long_term_start..]
+                .find("\n## ")
+                .map(|i| long_term_start + i)
+                .unwrap_or(response.len());
+            let long_term_content = &response[long_term_start..section_end];
+
+            if !long_term_content.trim().is_empty() {
+                if let Err(e) = memory_store.append_long_term(long_term_content, identity_id) {
+                    log::error!("[PRE_FLUSH] Failed to write long-term memory: {}", e);
+                } else {
+                    count += 1;
+                    log::info!("[PRE_FLUSH] Wrote long-term memories");
+                }
+            }
+        }
+
+        // Extract daily activity section
+        if let Some(daily_start) = response.find("## Daily") {
+            let section_end = response[daily_start..]
+                .find("\n## ")
+                .map(|i| daily_start + i)
+                .unwrap_or(response.len());
+            let daily_content = &response[daily_start..section_end];
+
+            if !daily_content.trim().is_empty() {
+                if let Err(e) = memory_store.append_daily_log(daily_content, identity_id) {
+                    log::error!("[PRE_FLUSH] Failed to write daily log: {}", e);
+                } else {
+                    count += 1;
+                    log::info!("[PRE_FLUSH] Wrote daily activity");
+                }
+            }
+        }
+
+        log::info!("[PRE_FLUSH] Extracted {} memory sections for session {}", count, session_id);
 
         // Update last_flush_at timestamp
         if let Err(e) = self.db.update_session_last_flush(session_id) {
             log::warn!("[PRE_FLUSH] Failed to update last_flush_at: {}", e);
         }
 
-        Ok(created_ids)
-    }
-
-    /// Parse memory markers from flush response and create memories
-    fn parse_and_create_flush_memories(
-        &self,
-        response: &str,
-        identity_id: Option<&str>,
-        session_id: i64,
-    ) -> Result<Vec<i64>, String> {
-        let mut created_ids = Vec::new();
-        let today = Utc::now().date_naive();
-
-        // Memory marker patterns for pre-flush
-        let patterns = [
-            (Regex::new(r"\[PREFERENCE:\s*(.+?)\]").unwrap(), MemoryType::Preference, 7, "explicit"),
-            (Regex::new(r"\[FACT:\s*(.+?)\]").unwrap(), MemoryType::Fact, 7, "explicit"),
-            (Regex::new(r"\[TASK:\s*(.+?)\]").unwrap(), MemoryType::Task, 8, "explicit"),
-            (Regex::new(r"\[REMEMBER:\s*(.+?)\]").unwrap(), MemoryType::LongTerm, 7, "explicit"),
-            (Regex::new(r"\[REMEMBER_IMPORTANT:\s*(.+?)\]").unwrap(), MemoryType::LongTerm, 9, "explicit"),
-        ];
-
-        for (pattern, memory_type, importance, source_type) in &patterns {
-            for cap in pattern.captures_iter(response) {
-                if let Some(content) = cap.get(1) {
-                    let content_str = content.as_str().trim();
-                    if !content_str.is_empty() {
-                        match self.db.create_memory_extended(
-                            *memory_type,
-                            content_str,
-                            Some("pre_compaction_flush"),
-                            None,
-                            *importance,
-                            identity_id,
-                            Some(session_id),
-                            None,
-                            None,
-                            if *memory_type == MemoryType::Task { Some(today) } else { None },
-                            None,
-                            None, // entity_type
-                            None, // entity_name
-                            Some(1.0), // confidence
-                            Some(source_type), // source_type
-                            None, // valid_from
-                            None, // valid_until
-                            None, // temporal_type
-                        ) {
-                            Ok(memory) => {
-                                log::info!("[PRE_FLUSH] Created {} memory: {}", memory_type.as_str(), content_str);
-                                created_ids.push(memory.id);
-                            }
-                            Err(e) => {
-                                log::error!("[PRE_FLUSH] Failed to create memory: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(created_ids)
+        Ok(count)
     }
 
     /// Perform context compaction for a session
@@ -287,7 +276,7 @@ impl ContextManager {
         let message_count = messages_to_compact.len() as i32;
         log::info!("[COMPACTION] Compacting {} messages for session {}", message_count, session_id);
 
-        // Phase 1: Pre-compaction memory flush
+        // Phase 1: Pre-compaction memory flush (writes to markdown files)
         if self.memory_config.enable_pre_compaction_flush {
             match self.flush_memories_before_compaction(
                 session_id,
@@ -295,9 +284,9 @@ impl ContextManager {
                 identity_id,
                 &messages_to_compact,
             ).await {
-                Ok(ids) => {
-                    if !ids.is_empty() {
-                        log::info!("[COMPACTION] Pre-flush saved {} memories", ids.len());
+                Ok(count) => {
+                    if count > 0 {
+                        log::info!("[COMPACTION] Pre-flush saved {} memory sections", count);
                     }
                 }
                 Err(e) => {
@@ -346,24 +335,19 @@ impl ContextManager {
 
         log::info!("[COMPACTION] Generated summary ({} chars) for session {}", summary.len(), session_id);
 
-        // Store the compaction summary as a memory
-        let compaction_memory = self.db.create_memory(
-            MemoryType::Compaction,
-            &summary,
-            Some("compaction"),
-            None,
-            10, // High importance
-            identity_id,
-            Some(session_id),
-            None,
-            None,
-            None,
-            None,
-        ).map_err(|e| format!("Failed to store compaction memory: {}", e))?;
+        // Write the compaction summary to the daily log as a session summary
+        if let Some(ref memory_store) = self.memory_store {
+            let summary_entry = format!("### Session Summary\n{}", summary);
+            if let Err(e) = memory_store.append_daily_log(&summary_entry, identity_id) {
+                log::error!("[COMPACTION] Failed to write session summary to daily log: {}", e);
+            }
+        }
 
-        // Update session with compaction reference
-        self.db.set_session_compaction(session_id, compaction_memory.id)
-            .map_err(|e| format!("Failed to update session compaction: {}", e))?;
+        // Store summary in session record for context building
+        // (The session still needs a compaction summary for the conversation window)
+        if let Err(e) = self.db.set_session_compaction_summary(session_id, &summary) {
+            log::warn!("[COMPACTION] Failed to store compaction summary in session: {}", e);
+        }
 
         // Delete the compacted messages
         let deleted = self.db.delete_compacted_messages(session_id, self.keep_recent_messages)
@@ -390,13 +374,15 @@ impl ContextManager {
 }
 
 /// Save session summary before reset (session memory hook)
+/// Now writes to QMD markdown files instead of database.
 pub async fn save_session_memory(
     db: &Arc<Database>,
     client: &AiClient,
     session_id: i64,
     identity_id: Option<&str>,
     message_limit: i32,
-) -> Result<i64, String> {
+    memory_store: Option<&Arc<MemoryStore>>,
+) -> Result<(), String> {
     // Get recent messages from the session
     let messages = db.get_recent_session_messages(session_id, message_limit)
         .map_err(|e| format!("Failed to get session messages: {}", e))?;
@@ -425,7 +411,7 @@ pub async fn save_session_memory(
     // Generate summary and title using AI
     let summary_prompt = format!(
         "Analyze this conversation and provide:\n\
-        1. A short descriptive title (5-10 words, suitable for a filename)\n\
+        1. A short descriptive title (5-10 words)\n\
         2. A brief summary of the key points discussed\n\n\
         Format your response as:\n\
         TITLE: <title here>\n\
@@ -451,27 +437,17 @@ pub async fn save_session_memory(
     // Parse title and summary from response
     let (title, summary) = parse_title_summary(&response);
 
-    // Create the session summary memory
-    let today = Utc::now().date_naive();
-    let content = format!("## {}\n\n{}", title, summary);
+    // Write to daily log in QMD memory store
+    if let Some(store) = memory_store {
+        let content = format!("### {}\n{}", title, summary);
+        store.append_daily_log(&content, identity_id)
+            .map_err(|e| format!("Failed to write session summary: {}", e))?;
+        log::info!("[SESSION_MEMORY] Saved session summary to daily log: {}", title);
+    } else {
+        log::warn!("[SESSION_MEMORY] No memory store available, session summary not saved");
+    }
 
-    let memory = db.create_memory(
-        MemoryType::SessionSummary,
-        &content,
-        Some("session_summary"),
-        Some(&title),
-        8, // High importance for session summaries
-        identity_id,
-        Some(session_id),
-        None,
-        None,
-        Some(today),
-        None,
-    ).map_err(|e| format!("Failed to create session memory: {}", e))?;
-
-    log::info!("[SESSION_MEMORY] Created session summary: {} (id={})", title, memory.id);
-
-    Ok(memory.id)
+    Ok(())
 }
 
 /// Parse title and summary from AI response

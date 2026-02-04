@@ -217,7 +217,7 @@ async fn main() -> std::io::Result<()> {
     let tx_q = tx_queue.clone();
     let frontend_dist = frontend_dist.to_string();
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
@@ -284,6 +284,38 @@ async fn main() -> std::io::Result<()> {
         app
     })
     .bind(("0.0.0.0", port))?
-    .run()
-    .await
+    .run();
+
+    // Get server handle for graceful shutdown
+    let server_handle = server.handle();
+
+    // Clone channel_manager for shutdown handler
+    let shutdown_channel_manager = channel_manager.clone();
+
+    // Spawn Ctrl+C handler
+    tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
+        log::info!("Received Ctrl+C, shutting down...");
+
+        // Stop all running channels with timeout (Discord, Telegram, Slack, etc.)
+        log::info!("Stopping all channels...");
+        let channel_stop = shutdown_channel_manager.stop_all();
+        if tokio::time::timeout(std::time::Duration::from_secs(5), channel_stop).await.is_err() {
+            log::warn!("Timeout waiting for channels to stop, continuing shutdown...");
+        }
+
+        // Signal scheduler to stop
+        let _ = scheduler_shutdown_tx.send(());
+
+        // Stop the HTTP server with timeout
+        log::info!("Stopping HTTP server...");
+        let server_stop = server_handle.stop(true);
+        if tokio::time::timeout(std::time::Duration::from_secs(5), server_stop).await.is_err() {
+            log::warn!("Timeout waiting for HTTP server to stop, forcing exit...");
+        }
+
+        log::info!("Shutdown complete");
+    });
+
+    server.await
 }

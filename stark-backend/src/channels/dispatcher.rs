@@ -439,11 +439,15 @@ impl MessageDispatcher {
         // Infer archetype from settings
         let archetype_id = AiClient::infer_archetype(&settings);
         log::info!(
-            "Using endpoint {} for message dispatch (archetype={}, max_tokens={})",
+            "Using endpoint {} for message dispatch (archetype={}, max_response={}, max_context={})",
             settings.endpoint,
             archetype_id,
-            settings.max_tokens
+            settings.max_response_tokens,
+            settings.max_context_tokens
         );
+
+        // Sync session's max_context_tokens with agent settings for dynamic compaction
+        self.context_manager.sync_max_context_tokens(session.id, settings.max_context_tokens);
 
         // Create AI client from settings with x402 wallet support
         let client = match AiClient::from_settings_with_wallet(

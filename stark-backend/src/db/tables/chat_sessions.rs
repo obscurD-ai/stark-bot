@@ -636,6 +636,17 @@ impl Database {
         Ok(())
     }
 
+    /// Update the max context tokens limit for a session (for dynamic compaction thresholds)
+    pub fn update_session_max_context_tokens(&self, session_id: i64, max_context_tokens: i32) -> SqliteResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE chat_sessions SET max_context_tokens = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![max_context_tokens, &now, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Get oldest messages for compaction (excludes most recent messages)
     pub fn get_messages_for_compaction(&self, session_id: i64, keep_recent: i32) -> SqliteResult<Vec<SessionMessage>> {
         let conn = self.conn.lock().unwrap();

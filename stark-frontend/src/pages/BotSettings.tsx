@@ -1,8 +1,9 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Save, Bot, Server, Users, Skull } from 'lucide-react';
+import { Save, Bot, Server } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import OperatingModeCard from '@/components/OperatingModeCard';
 import {
   getBotSettings,
   updateBotSettings,
@@ -65,25 +66,6 @@ export default function BotSettings() {
     setMessage(null);
 
     try {
-      const updated = await updateBotSettings({
-        bot_name: botName,
-        bot_email: botEmail,
-      });
-      setSettings(updated);
-      setMessage({ type: 'success', text: 'Settings saved successfully' });
-    } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to save settings' });
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleRpcSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setMessage(null);
-
-    try {
       const customEndpoints = rpcProvider === 'custom' ? {
         base: customRpcBase,
         mainnet: customRpcMainnet,
@@ -91,13 +73,15 @@ export default function BotSettings() {
       } : undefined;
 
       const updated = await updateBotSettings({
+        bot_name: botName,
+        bot_email: botEmail,
         rpc_provider: rpcProvider,
         custom_rpc_endpoints: customEndpoints,
       });
       setSettings(updated);
-      setMessage({ type: 'success', text: 'RPC settings saved successfully' });
+      setMessage({ type: 'success', text: 'Settings saved successfully' });
     } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to save RPC settings' });
+      setMessage({ type: 'error', text: 'Failed to save settings' });
     } finally {
       setIsSaving(false);
     }
@@ -123,7 +107,7 @@ export default function BotSettings() {
         <p className="text-slate-400">Configure bot identity and RPC settings</p>
       </div>
 
-      <div className="grid gap-6 max-w-2xl">
+      <form onSubmit={handleSubmit} className="grid gap-6 max-w-2xl">
         {/* Bot Identity Section */}
         <Card>
           <CardHeader>
@@ -132,34 +116,27 @@ export default function BotSettings() {
               Bot Identity
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <Input
-                label="Bot Name"
-                value={botName}
-                onChange={(e) => setBotName(e.target.value)}
-                placeholder="StarkBot"
-              />
-              <p className="text-xs text-slate-500 -mt-2">
-                Used for git commits and identification
-              </p>
+          <CardContent className="space-y-4">
+            <Input
+              label="Bot Name"
+              value={botName}
+              onChange={(e) => setBotName(e.target.value)}
+              placeholder="StarkBot"
+            />
+            <p className="text-xs text-slate-500 -mt-2">
+              Used for git commits and identification
+            </p>
 
-              <Input
-                label="Bot Email"
-                value={botEmail}
-                onChange={(e) => setBotEmail(e.target.value)}
-                placeholder="starkbot@users.noreply.github.com"
-                type="email"
-              />
-              <p className="text-xs text-slate-500 -mt-2">
-                Used for git commit author email
-              </p>
-
-              <Button type="submit" isLoading={isSaving} className="w-fit">
-                <Save className="w-4 h-4 mr-2" />
-                Save Identity
-              </Button>
-            </form>
+            <Input
+              label="Bot Email"
+              value={botEmail}
+              onChange={(e) => setBotEmail(e.target.value)}
+              placeholder="starkbot@users.noreply.github.com"
+              type="email"
+            />
+            <p className="text-xs text-slate-500 -mt-2">
+              Used for git commit author email
+            </p>
           </CardContent>
         </Card>
 
@@ -171,132 +148,71 @@ export default function BotSettings() {
               RPC Configuration
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleRpcSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  RPC Provider
-                </label>
-                <select
-                  value={rpcProvider}
-                  onChange={(e) => setRpcProvider(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-stark-500 focus:outline-none"
-                >
-                  {rpcProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.display_name}
-                    </option>
-                  ))}
-                </select>
-                {selectedProvider && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {selectedProvider.description}
-                    {selectedProvider.x402 && (
-                      <span className="ml-2 text-stark-400">(x402 payment enabled)</span>
-                    )}
-                  </p>
-                )}
-              </div>
-
-              {rpcProvider === 'custom' && (
-                <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg">
-                  <p className="text-sm text-slate-400 mb-2">
-                    Enter your custom RPC endpoints. These will be used without x402 payment.
-                  </p>
-                  <Input
-                    label="Base Network RPC URL"
-                    value={customRpcBase}
-                    onChange={(e) => setCustomRpcBase(e.target.value)}
-                    placeholder="https://mainnet.base.org"
-                  />
-                  <Input
-                    label="Mainnet RPC URL"
-                    value={customRpcMainnet}
-                    onChange={(e) => setCustomRpcMainnet(e.target.value)}
-                    placeholder="https://eth-mainnet.g.alchemy.com/v2/..."
-                  />
-                  <Input
-                    label="Polygon RPC URL"
-                    value={customRpcPolygon}
-                    onChange={(e) => setCustomRpcPolygon(e.target.value)}
-                    placeholder="https://polygon-mainnet.g.alchemy.com/v2/..."
-                  />
-                </div>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">
+                RPC Provider
+              </label>
+              <select
+                value={rpcProvider}
+                onChange={(e) => setRpcProvider(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-stark-500 focus:outline-none"
+              >
+                {rpcProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.display_name}
+                  </option>
+                ))}
+              </select>
+              {selectedProvider && (
+                <p className="text-xs text-slate-500 mt-1">
+                  {selectedProvider.description}
+                  {selectedProvider.x402 && (
+                    <span className="ml-2 text-stark-400">(x402 payment enabled)</span>
+                  )}
+                </p>
               )}
+            </div>
 
-              <Button type="submit" isLoading={isSaving} className="w-fit">
-                <Save className="w-4 h-4 mr-2" />
-                Save RPC Settings
-              </Button>
-            </form>
+            {rpcProvider === 'custom' && (
+              <div className="space-y-4 p-4 bg-slate-800/50 rounded-lg">
+                <p className="text-sm text-slate-400 mb-2">
+                  Enter your custom RPC endpoints. These will be used without x402 payment.
+                </p>
+                <Input
+                  label="Base Network RPC URL"
+                  value={customRpcBase}
+                  onChange={(e) => setCustomRpcBase(e.target.value)}
+                  placeholder="https://mainnet.base.org"
+                />
+                <Input
+                  label="Mainnet RPC URL"
+                  value={customRpcMainnet}
+                  onChange={(e) => setCustomRpcMainnet(e.target.value)}
+                  placeholder="https://eth-mainnet.g.alchemy.com/v2/..."
+                />
+                <Input
+                  label="Polygon RPC URL"
+                  value={customRpcPolygon}
+                  onChange={(e) => setCustomRpcPolygon(e.target.value)}
+                  placeholder="https://polygon-mainnet.g.alchemy.com/v2/..."
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 
         {/* Operating Mode Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {rogueModeEnabled ? (
-                <Skull className="w-5 h-5 text-red-400" />
-              ) : (
-                <Users className="w-5 h-5 text-stark-400" />
-              )}
-              Operating Mode
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Users className={`w-5 h-5 ${!rogueModeEnabled ? 'text-stark-400' : 'text-slate-500'}`} />
-                <span className={`font-medium ${!rogueModeEnabled ? 'text-white' : 'text-slate-500'}`}>
-                  Partner
-                </span>
-              </div>
+        <OperatingModeCard
+          rogueModeEnabled={rogueModeEnabled}
+          onModeChange={setRogueModeEnabled}
+          onMessage={setMessage}
+        />
 
-              <button
-                onClick={async () => {
-                  const newValue = !rogueModeEnabled;
-                  setIsSaving(true);
-                  setMessage(null);
-                  try {
-                    const updated = await updateBotSettings({
-                      rogue_mode_enabled: newValue,
-                    });
-                    setSettings(updated);
-                    setRogueModeEnabled(newValue);
-                    setMessage({ type: 'success', text: `Switched to ${newValue ? 'Rogue' : 'Partner'} mode` });
-                  } catch (err) {
-                    setMessage({ type: 'error', text: 'Failed to update operating mode' });
-                  } finally {
-                    setIsSaving(false);
-                  }
-                }}
-                disabled={isSaving}
-                className={`relative w-14 h-7 rounded-full transition-colors duration-200 ${
-                  rogueModeEnabled
-                    ? 'bg-red-500'
-                    : 'bg-stark-500'
-                } ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <div
-                  className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${
-                    rogueModeEnabled ? 'translate-x-8' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <span className={`font-medium ${rogueModeEnabled ? 'text-white' : 'text-slate-500'}`}>
-                  Rogue
-                </span>
-                <Skull className={`w-5 h-5 ${rogueModeEnabled ? 'text-red-400' : 'text-slate-500'}`} />
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Partner mode: collaborative assistant. Rogue mode: autonomous agent.
-            </p>
-          </CardContent>
-        </Card>
+        <Button type="submit" isLoading={isSaving} className="w-fit">
+          <Save className="w-4 h-4 mr-2" />
+          Save Settings
+        </Button>
 
         {message && (
           <div
@@ -309,7 +225,7 @@ export default function BotSettings() {
             {message.text}
           </div>
         )}
-      </div>
+      </form>
     </div>
   );
 }

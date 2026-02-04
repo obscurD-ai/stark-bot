@@ -197,7 +197,11 @@ async fn list_tools(state: web::Data<AppState>, req: HttpRequest) -> impl Respon
 }
 
 /// List all tool groups with labels and descriptions
-async fn list_groups(_state: web::Data<AppState>, _req: HttpRequest) -> impl Responder {
+async fn list_groups(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
     let groups: Vec<GroupInfo> = ToolGroup::all()
         .into_iter()
         .map(|g| GroupInfo {
@@ -213,7 +217,11 @@ async fn list_groups(_state: web::Data<AppState>, _req: HttpRequest) -> impl Res
     })
 }
 
-async fn list_profiles(_state: web::Data<AppState>, _req: HttpRequest) -> impl Responder {
+async fn list_profiles(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
     let profiles = vec![
         ProfileInfo {
             name: "none".to_string(),

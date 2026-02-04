@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::Result as SqliteResult;
 
-use crate::models::AgentSettings;
+use crate::models::{AgentSettings, MIN_CONTEXT_TOKENS, DEFAULT_CONTEXT_TOKENS};
 use super::super::Database;
 
 impl Database {
@@ -12,7 +12,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, endpoint, model_archetype, max_tokens, enabled, secret_key, created_at, updated_at
+            "SELECT id, endpoint, model_archetype, max_response_tokens, max_context_tokens, enabled, secret_key, created_at, updated_at
              FROM agent_settings WHERE enabled = 1 LIMIT 1",
         )?;
 
@@ -28,7 +28,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, endpoint, model_archetype, max_tokens, enabled, secret_key, created_at, updated_at
+            "SELECT id, endpoint, model_archetype, max_response_tokens, max_context_tokens, enabled, secret_key, created_at, updated_at
              FROM agent_settings WHERE endpoint = ?1",
         )?;
 
@@ -44,7 +44,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, endpoint, model_archetype, max_tokens, enabled, secret_key, created_at, updated_at
+            "SELECT id, endpoint, model_archetype, max_response_tokens, max_context_tokens, enabled, secret_key, created_at, updated_at
              FROM agent_settings ORDER BY id",
         )?;
 
@@ -61,11 +61,15 @@ impl Database {
         &self,
         endpoint: &str,
         model_archetype: &str,
-        max_tokens: i32,
+        max_response_tokens: i32,
+        max_context_tokens: i32,
         secret_key: Option<&str>,
     ) -> SqliteResult<AgentSettings> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();
+
+        // Enforce minimum context tokens
+        let max_context_tokens = max_context_tokens.max(MIN_CONTEXT_TOKENS);
 
         // First, disable all existing settings
         conn.execute("UPDATE agent_settings SET enabled = 0, updated_at = ?1", [&now])?;
@@ -82,15 +86,15 @@ impl Database {
         if let Some(id) = existing {
             // Update existing
             conn.execute(
-                "UPDATE agent_settings SET model_archetype = ?1, max_tokens = ?2, secret_key = ?3, enabled = 1, updated_at = ?4 WHERE id = ?5",
-                rusqlite::params![model_archetype, max_tokens, secret_key, &now, id],
+                "UPDATE agent_settings SET model_archetype = ?1, max_response_tokens = ?2, max_context_tokens = ?3, secret_key = ?4, enabled = 1, updated_at = ?5 WHERE id = ?6",
+                rusqlite::params![model_archetype, max_response_tokens, max_context_tokens, secret_key, &now, id],
             )?;
         } else {
             // Insert new
             conn.execute(
-                "INSERT INTO agent_settings (endpoint, model_archetype, max_tokens, secret_key, enabled, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)",
-                rusqlite::params![endpoint, model_archetype, max_tokens, secret_key, &now, &now],
+                "INSERT INTO agent_settings (endpoint, model_archetype, max_response_tokens, max_context_tokens, secret_key, enabled, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
+                rusqlite::params![endpoint, model_archetype, max_response_tokens, max_context_tokens, secret_key, &now, &now],
             )?;
         }
 
@@ -110,16 +114,17 @@ impl Database {
     }
 
     fn row_to_agent_settings(row: &rusqlite::Row) -> rusqlite::Result<AgentSettings> {
-        let created_at_str: String = row.get(6)?;
-        let updated_at_str: String = row.get(7)?;
+        let created_at_str: String = row.get(7)?;
+        let updated_at_str: String = row.get(8)?;
 
         Ok(AgentSettings {
             id: row.get(0)?,
             endpoint: row.get(1)?,
             model_archetype: row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "kimi".to_string()),
-            max_tokens: row.get::<_, Option<i32>>(3)?.unwrap_or(40000),
-            enabled: row.get::<_, i32>(4)? != 0,
-            secret_key: row.get(5)?,
+            max_response_tokens: row.get::<_, Option<i32>>(3)?.unwrap_or(40000),
+            max_context_tokens: row.get::<_, Option<i32>>(4)?.unwrap_or(DEFAULT_CONTEXT_TOKENS),
+            enabled: row.get::<_, i32>(5)? != 0,
+            secret_key: row.get(6)?,
             created_at: DateTime::parse_from_rfc3339(&created_at_str)
                 .unwrap()
                 .with_timezone(&Utc),

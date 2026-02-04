@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Calendar, Trash2, MessageSquare, Download, ChevronLeft, User, Bot, Wrench, CheckCircle, XCircle, AlertCircle, Play, Pause, RefreshCw } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
-import { getSessions, deleteSession, deleteAllSessions, getSessionTranscript, SessionMessage, getCronJobs, CronJobInfo, stopSession, resumeSession } from '@/lib/api';
+import { getSessions, getSession, deleteSession, deleteAllSessions, getSessionTranscript, SessionMessage, getCronJobs, CronJobInfo, stopSession, resumeSession } from '@/lib/api';
 
 type CompletionStatus = 'active' | 'complete' | 'cancelled' | 'failed';
 
@@ -56,14 +56,18 @@ export default function Sessions() {
 
   // Auto-load session from URL params
   useEffect(() => {
-    if (sessionId && sessions.length > 0 && !selectedSession) {
+    if (sessionId && !isLoading && !selectedSession) {
       const id = parseInt(sessionId, 10);
+      // First try to find in cached list
       const session = sessions.find(s => s.id === id);
       if (session) {
         loadTranscript(session);
+      } else {
+        // Session not in list (e.g., older than top 100), fetch directly
+        loadSessionById(id);
       }
     }
-  }, [sessionId, sessions]);
+  }, [sessionId, sessions, isLoading]);
 
   // Polling for new messages when viewing a session
   useEffect(() => {
@@ -115,6 +119,22 @@ export default function Sessions() {
       setMessages(transcript.messages);
     } catch (err) {
       setError('Failed to load transcript');
+      setMessages([]);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const loadSessionById = async (id: number) => {
+    setIsLoadingMessages(true);
+    setError(null);
+    try {
+      const session = await getSession(id);
+      setSelectedSession(session);
+      const transcript = await getSessionTranscript(id);
+      setMessages(transcript.messages);
+    } catch (err) {
+      setError('Session not found');
       setMessages([]);
     } finally {
       setIsLoadingMessages(false);
@@ -312,6 +332,44 @@ export default function Sessions() {
           <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-slate-400">Loading sessions...</span>
         </div>
+      </div>
+    );
+  }
+
+  // Loading a session directly by URL (not in cached list)
+  if (isLoadingMessages && !selectedSession && sessionId) {
+    return (
+      <div className="p-4 sm:p-8 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-stark-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-slate-400">Loading session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Session not found (tried to load by URL but failed)
+  if (error && !selectedSession && sessionId) {
+    return (
+      <div className="p-4 sm:p-8">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setError(null);
+            navigate('/sessions');
+          }}
+          className="mb-4"
+        >
+          <ChevronLeft className="w-4 h-4 mr-1" />
+          Back to sessions
+        </Button>
+        <Card>
+          <CardContent className="text-center py-12">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+            <p className="text-slate-400">{error}</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }

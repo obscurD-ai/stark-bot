@@ -244,6 +244,21 @@ export async function getSessions(): Promise<Array<{
   return apiFetch('/sessions');
 }
 
+export async function getSession(id: number): Promise<{
+  id: number;
+  channel_type: string;
+  channel_id: number;
+  platform_chat_id?: string;
+  is_active?: boolean;
+  completion_status?: string;
+  created_at: string;
+  updated_at: string;
+  message_count?: number;
+  initial_query?: string;
+}> {
+  return apiFetch(`/sessions/${id}`);
+}
+
 export async function deleteSession(id: string): Promise<{
   success: boolean;
   message: string;

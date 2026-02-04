@@ -1,23 +1,21 @@
 import React, { useState, useEffect, FormEvent } from 'react';
-import { Save, Skull, Heart, AlertCircle, Zap, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Save, Heart, AlertCircle, Zap, Network } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import OperatingModeCard from '@/components/OperatingModeCard';
 import {
   getBotSettings,
-  updateBotSettings,
   getHeartbeatConfig,
   updateHeartbeatConfig,
   pulseHeartbeatOnce,
-  BotSettings as BotSettingsType,
   HeartbeatConfigInfo,
 } from '@/lib/api';
 
 export default function Heartbeat() {
-  const [, setSettings] = useState<BotSettingsType | null>(null);
   const [rogueModeEnabled, setRogueModeEnabled] = useState(false);
   const [heartbeatConfig, setHeartbeatConfig] = useState<HeartbeatConfigInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
@@ -28,7 +26,6 @@ export default function Heartbeat() {
   const loadSettings = async () => {
     try {
       const data = await getBotSettings();
-      setSettings(data);
       setRogueModeEnabled(data.rogue_mode_enabled || false);
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -66,70 +63,11 @@ export default function Heartbeat() {
 
       <div className="grid gap-6 max-w-2xl">
         {/* Operating Mode Section */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {rogueModeEnabled ? (
-                <Skull className="w-5 h-5 text-red-400" />
-              ) : (
-                <Users className="w-5 h-5 text-stark-400" />
-              )}
-              Operating Mode
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Users className={`w-5 h-5 ${!rogueModeEnabled ? 'text-stark-400' : 'text-slate-500'}`} />
-                <span className={`font-medium ${!rogueModeEnabled ? 'text-white' : 'text-slate-500'}`}>
-                  Partner
-                </span>
-              </div>
-
-              <button
-                onClick={async () => {
-                  const newValue = !rogueModeEnabled;
-                  setIsSaving(true);
-                  setMessage(null);
-                  try {
-                    const updated = await updateBotSettings({
-                      rogue_mode_enabled: newValue,
-                    });
-                    setSettings(updated);
-                    setRogueModeEnabled(newValue);
-                    setMessage({ type: 'success', text: `Switched to ${newValue ? 'Rogue' : 'Partner'} mode` });
-                  } catch (err) {
-                    setMessage({ type: 'error', text: 'Failed to update operating mode' });
-                  } finally {
-                    setIsSaving(false);
-                  }
-                }}
-                disabled={isSaving}
-                className={`relative w-14 h-7 rounded-full transition-colors duration-200 ${
-                  rogueModeEnabled
-                    ? 'bg-red-500'
-                    : 'bg-stark-500'
-                } ${isSaving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <div
-                  className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform duration-200 ${
-                    rogueModeEnabled ? 'translate-x-8' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <span className={`font-medium ${rogueModeEnabled ? 'text-white' : 'text-slate-500'}`}>
-                  Rogue
-                </span>
-                <Skull className={`w-5 h-5 ${rogueModeEnabled ? 'text-red-400' : 'text-slate-500'}`} />
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Partner mode: collaborative assistant. Rogue mode: autonomous agent.
-            </p>
-          </CardContent>
-        </Card>
+        <OperatingModeCard
+          rogueModeEnabled={rogueModeEnabled}
+          onModeChange={setRogueModeEnabled}
+          onMessage={setMessage}
+        />
 
         {/* Heartbeat Section */}
         <HeartbeatSection
@@ -162,6 +100,7 @@ interface HeartbeatSectionProps {
 }
 
 function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionProps) {
+  const navigate = useNavigate();
   const [isSaving, setIsSaving] = useState(false);
   const [isPulsing, setIsPulsing] = useState(false);
   const [countdown, setCountdown] = useState<string | null>(null);
@@ -422,41 +361,31 @@ function HeartbeatSection({ config, setConfig, setMessage }: HeartbeatSectionPro
             </div>
           </div>
 
-          {config && (
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-slate-500">Last heartbeat</p>
-                <p className="text-slate-300">
-                  {config.last_beat_at
-                    ? new Date(config.last_beat_at).toLocaleString()
-                    : 'Never'}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Next heartbeat</p>
-                <p className="text-slate-300">
-                  {config.next_beat_at
-                    ? new Date(config.next_beat_at).toLocaleString()
-                    : 'Not scheduled'}
-                </p>
-              </div>
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              <Button type="submit" isLoading={isSaving} className="w-fit">
+                <Save className="w-4 h-4 mr-2" />
+                Save
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handlePulseOnce}
+                isLoading={isPulsing}
+                className="w-fit"
+              >
+                <Zap className="w-4 h-4 mr-2" />
+                Pulse Once
+              </Button>
             </div>
-          )}
-
-          <div className="flex gap-2">
-            <Button type="submit" isLoading={isSaving} className="w-fit">
-              <Save className="w-4 h-4 mr-2" />
-              Save
-            </Button>
             <Button
               type="button"
               variant="secondary"
-              onClick={handlePulseOnce}
-              isLoading={isPulsing}
               className="w-fit"
+              onClick={() => navigate('/mindmap')}
             >
-              <Zap className="w-4 h-4 mr-2" />
-              Pulse Once
+              <Network className="w-4 h-4 mr-2" />
+              Edit Mindmap
             </Button>
           </div>
         </form>

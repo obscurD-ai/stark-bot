@@ -459,7 +459,8 @@ impl Scheduler {
             node_content
         );
 
-        // Use fixed constants to ensure only ONE heartbeat identity/session ever exists
+        // Use fixed constants for heartbeat identity, but isolated session mode
+        // to prevent session state corruption from breaking other functionality
         let normalized = NormalizedMessage {
             channel_id: config.channel_id.unwrap_or(0),
             channel_type: HEARTBEAT_CHANNEL_TYPE.to_string(),
@@ -468,7 +469,7 @@ impl Scheduler {
             user_name: HEARTBEAT_USER_NAME.to_string(),
             text: message_text,
             message_id: Some(format!("heartbeat-{}", now.timestamp())),
-            session_mode: None, // Use normal session mode to reuse session
+            session_mode: Some("isolated".to_string()), // Isolated to prevent state corruption
             selected_network: None,
         };
 

@@ -16,7 +16,8 @@ type ModelArchetype = 'kimi' | 'llama' | 'claude' | 'openai';
 interface Settings {
   endpoint?: string;
   model_archetype?: string;
-  max_tokens?: number;
+  max_response_tokens?: number;
+  max_context_tokens?: number;
   has_secret_key?: boolean;
 }
 
@@ -24,7 +25,8 @@ export default function AgentSettings() {
   const [endpointOption, setEndpointOption] = useState<EndpointOption>('kimi');
   const [customEndpoint, setCustomEndpoint] = useState('');
   const [modelArchetype, setModelArchetype] = useState<ModelArchetype>('kimi');
-  const [maxTokens, setMaxTokens] = useState(40000);
+  const [maxResponseTokens, setMaxResponseTokens] = useState(40000);
+  const [maxContextTokens, setMaxContextTokens] = useState(100000);
   const [secretKey, setSecretKey] = useState('');
   const [hasExistingSecretKey, setHasExistingSecretKey] = useState(false);
   const [maxToolIterations, setMaxToolIterations] = useState(50);
@@ -74,9 +76,12 @@ export default function AgentSettings() {
         setModelArchetype(data.model_archetype as ModelArchetype);
       }
 
-      // Set max tokens
-      if (data.max_tokens && data.max_tokens > 0) {
-        setMaxTokens(data.max_tokens);
+      // Set token limits
+      if (data.max_response_tokens && data.max_response_tokens > 0) {
+        setMaxResponseTokens(data.max_response_tokens);
+      }
+      if (data.max_context_tokens && data.max_context_tokens > 0) {
+        setMaxContextTokens(data.max_context_tokens);
       }
     } catch (err) {
       setMessage({ type: 'error', text: 'Failed to load settings' });
@@ -110,7 +115,7 @@ export default function AgentSettings() {
     }
   };
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleEndpointSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     setMessage(null);
@@ -130,6 +135,9 @@ export default function AgentSettings() {
       return;
     }
 
+    // Enforce minimum context tokens
+    const contextTokens = Math.max(maxContextTokens, 80000);
+
     try {
       // Enforce archetype for known endpoints
       const archetype = endpointOption === 'kimi' ? 'kimi'
@@ -140,12 +148,14 @@ export default function AgentSettings() {
       const payload: {
         endpoint: string;
         model_archetype: string;
-        max_tokens: number;
+        max_response_tokens: number;
+        max_context_tokens: number;
         secret_key?: string;
       } = {
         endpoint,
         model_archetype: archetype,
-        max_tokens: maxTokens,
+        max_response_tokens: maxResponseTokens,
+        max_context_tokens: contextTokens,
       };
 
       if (endpointOption === 'custom' && secretKey.trim()) {
@@ -153,7 +163,7 @@ export default function AgentSettings() {
       }
 
       await updateAgentSettings(payload);
-      setMessage({ type: 'success', text: 'Settings saved successfully' });
+      setMessage({ type: 'success', text: 'Endpoint settings saved successfully' });
 
       // Update the indicator if we saved a new key
       if (endpointOption === 'custom' && secretKey.trim()) {
@@ -161,7 +171,7 @@ export default function AgentSettings() {
         setSecretKey(''); // Clear the input after saving
       }
     } catch (err) {
-      setMessage({ type: 'error', text: 'Failed to save settings' });
+      setMessage({ type: 'error', text: 'Failed to save endpoint settings' });
     } finally {
       setIsSaving(false);
     }
@@ -185,13 +195,13 @@ export default function AgentSettings() {
         <p className="text-slate-400">Configure your AI agent endpoint and model type</p>
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <div className="grid gap-6 max-w-2xl">
-          <Card>
-            <CardHeader>
-              <CardTitle>Endpoint Configuration</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+      <div className="grid gap-6 max-w-2xl">
+        <Card>
+          <CardHeader>
+            <CardTitle>Endpoint Configuration</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleEndpointSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
                   Agent Endpoint
@@ -260,76 +270,93 @@ export default function AgentSettings() {
 
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Max Tokens
+                  Max Response Tokens
                 </label>
                 <input
                   type="number"
-                  value={maxTokens}
-                  onChange={(e) => setMaxTokens(parseInt(e.target.value) || 40000)}
+                  value={maxResponseTokens}
+                  onChange={(e) => setMaxResponseTokens(parseInt(e.target.value) || 40000)}
                   min={1000}
                   max={200000}
                   className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-stark-500 focus:border-transparent"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  Maximum tokens for AI response (default: 40,000)
+                  Maximum tokens for AI response output (default: 40,000)
                 </p>
               </div>
-            </CardContent>
-          </Card>
 
-          {/* Agent Behavior Section */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-stark-400" />
-                Agent Behavior
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleBehaviorSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Max Tool Iterations
-                  </label>
-                  <input
-                    type="number"
-                    min={10}
-                    max={200}
-                    value={maxToolIterations}
-                    onChange={(e) => setMaxToolIterations(parseInt(e.target.value) || 50)}
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-stark-500 focus:outline-none"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Maximum number of tool calls per request (10-200). Higher values allow for more complex tasks but may take longer.
-                  </p>
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Max Context Tokens
+                </label>
+                <input
+                  type="number"
+                  value={maxContextTokens}
+                  onChange={(e) => setMaxContextTokens(parseInt(e.target.value) || 100000)}
+                  min={80000}
+                  max={200000}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-stark-500 focus:border-transparent"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Context window limit for conversation history (min: 80,000, default: 100,000). Controls when compaction triggers.
+                </p>
+              </div>
 
-                <Button type="submit" isLoading={isSavingBehavior} className="w-fit">
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Agent Settings
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+              <Button type="submit" isLoading={isSaving} className="w-fit">
+                <Save className="w-4 h-4 mr-2" />
+                Save Endpoint Settings
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
 
-          {message && (
-            <div
-              className={`px-4 py-3 rounded-lg ${
-                message.type === 'success'
-                  ? 'bg-green-500/20 border border-green-500/50 text-green-400'
-                  : 'bg-red-500/20 border border-red-500/50 text-red-400'
-              }`}
-            >
-              {message.text}
-            </div>
-          )}
+        {/* Agent Behavior Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-stark-400" />
+              Agent Behavior
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleBehaviorSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Max Tool Iterations
+                </label>
+                <input
+                  type="number"
+                  min={10}
+                  max={200}
+                  value={maxToolIterations}
+                  onChange={(e) => setMaxToolIterations(parseInt(e.target.value) || 50)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-stark-500 focus:outline-none"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Maximum number of tool calls per request (10-200). Higher values allow for more complex tasks but may take longer.
+                </p>
+              </div>
 
-          <Button type="submit" isLoading={isSaving} className="w-fit">
-            <Save className="w-4 h-4 mr-2" />
-            Save Settings
-          </Button>
-        </div>
-      </form>
+              <Button type="submit" isLoading={isSavingBehavior} className="w-fit">
+                <Save className="w-4 h-4 mr-2" />
+                Save Behavior Settings
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {message && (
+          <div
+            className={`px-4 py-3 rounded-lg ${
+              message.type === 'success'
+                ? 'bg-green-500/20 border border-green-500/50 text-green-400'
+                : 'bg-red-500/20 border border-red-500/50 text-red-400'
+            }`}
+          >
+            {message.text}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

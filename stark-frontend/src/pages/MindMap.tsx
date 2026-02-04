@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as d3 from 'd3';
-import { X, Save, Trash2, Menu, Clock, MessageSquare, Heart } from 'lucide-react';
+import { animate } from 'animejs';
+import { X, Save, Trash2, Menu, Clock, MessageSquare, Heart, Zap } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import {
   getMindGraph,
@@ -11,10 +12,12 @@ import {
   getHeartbeatSessions,
   getHeartbeatConfig,
   updateHeartbeatConfig,
+  pulseHeartbeatOnce,
   MindNodeInfo,
   MindConnectionInfo,
   HeartbeatSessionInfo,
 } from '@/lib/api';
+import { getGateway } from '@/lib/gateway-client';
 
 interface D3Node extends d3.SimulationNodeDatum {
   id: number;
@@ -57,6 +60,173 @@ export default function MindMap() {
   const [heartbeatLoading, setHeartbeatLoading] = useState(false);
   const [nextBeatAt, setNextBeatAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<string | null>(null);
+  const lastSessionIdRef = useRef<number | null>(null);
+
+  // Rainbow swirl animation on heartbeat using anime.js
+  const triggerHeartbeatAnimation = useCallback((nodeId: number) => {
+    if (!svgRef.current || !containerRef.current) return;
+
+    const svg = d3.select(svgRef.current);
+    const nodeGroup = svg.select(`g[data-node-id="${nodeId}"]`);
+    if (nodeGroup.empty()) return;
+
+    // Get node position and apply current zoom transform
+    const transform = nodeGroup.attr('transform');
+    const match = transform?.match(/translate\(([^,]+),([^)]+)\)/);
+    if (!match) return;
+
+    const nodeX = parseFloat(match[1]);
+    const nodeY = parseFloat(match[2]);
+
+    // Get the current zoom transform from main group
+    const mainG = svg.select('g.main-group');
+    const mainTransform = mainG.attr('transform');
+    let tx = 0, ty = 0, scale = 1;
+    if (mainTransform) {
+      const translateMatch = mainTransform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+      const scaleMatch = mainTransform.match(/scale\(([^)]+)\)/);
+      if (translateMatch) {
+        tx = parseFloat(translateMatch[1]);
+        ty = parseFloat(translateMatch[2]);
+      }
+      if (scaleMatch) {
+        scale = parseFloat(scaleMatch[1]);
+      }
+    }
+
+    // Calculate screen position of node
+    const screenX = tx + nodeX * scale;
+    const screenY = ty + nodeY * scale;
+
+    // Create container for animation elements
+    const animContainer = document.createElement('div');
+    animContainer.style.cssText = `
+      position: absolute;
+      left: ${screenX}px;
+      top: ${screenY}px;
+      pointer-events: none;
+      z-index: 100;
+    `;
+    containerRef.current.appendChild(animContainer);
+
+    // Rainbow colors
+    const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0080ff', '#8000ff', '#ff00ff'];
+
+    // Create swirling noodles
+    const numNoodles = 16;
+    const noodles: HTMLDivElement[] = [];
+
+    for (let i = 0; i < numNoodles; i++) {
+      const noodle = document.createElement('div');
+      const color = colors[i % colors.length];
+      const angle = (i / numNoodles) * 360;
+      const startRadius = 150 + Math.random() * 50;
+
+      noodle.style.cssText = `
+        position: absolute;
+        width: 4px;
+        height: 20px;
+        background: linear-gradient(to bottom, ${color}, transparent);
+        border-radius: 2px;
+        left: -2px;
+        top: -10px;
+        transform: rotate(${angle}deg) translateY(-${startRadius}px);
+        box-shadow: 0 0 10px ${color}, 0 0 20px ${color};
+        opacity: 0;
+      `;
+      animContainer.appendChild(noodle);
+      noodles.push(noodle);
+    }
+
+    // Animate noodles spiraling in
+    noodles.forEach((noodle, i) => {
+      const targetRotation = (i / numNoodles) * 360 + 720;
+      animate(noodle, {
+        translateY: 0,
+        rotate: targetRotation,
+        opacity: [0, 1, 1, 0],
+        scale: [1, 0.5],
+        duration: 1200,
+        delay: i * 40,
+        ease: 'inQuad',
+      });
+    });
+
+    // Create burst particles
+    setTimeout(() => {
+      const numParticles = 24;
+      const particles: HTMLDivElement[] = [];
+
+      for (let i = 0; i < numParticles; i++) {
+        const particle = document.createElement('div');
+        const color = colors[i % colors.length];
+        const size = 6 + Math.random() * 8;
+
+        particle.style.cssText = `
+          position: absolute;
+          width: ${size}px;
+          height: ${size}px;
+          background: ${color};
+          border-radius: 50%;
+          left: ${-size / 2}px;
+          top: ${-size / 2}px;
+          box-shadow: 0 0 10px ${color}, 0 0 20px ${color}, 0 0 30px ${color};
+        `;
+        animContainer.appendChild(particle);
+        particles.push(particle);
+      }
+
+      // Burst outward
+      particles.forEach((particle, i) => {
+        animate(particle, {
+          translateX: (Math.random() - 0.5) * 200,
+          translateY: (Math.random() - 0.5) * 200,
+          scale: [1, 0],
+          opacity: [1, 0],
+          duration: 800,
+          delay: i * 20,
+          ease: 'outExpo',
+        });
+      });
+
+      // Central flash
+      const flash = document.createElement('div');
+      flash.style.cssText = `
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background: radial-gradient(circle, white 0%, transparent 70%);
+        border-radius: 50%;
+        left: -10px;
+        top: -10px;
+        box-shadow: 0 0 30px white, 0 0 60px white;
+      `;
+      animContainer.appendChild(flash);
+
+      animate(flash, {
+        scale: [1, 8],
+        opacity: [1, 0],
+        duration: 500,
+        ease: 'outExpo',
+      });
+
+      // Pulse the actual SVG node
+      const nodeCircle = nodeGroup.select('circle');
+      const originalRadius = nodeCircle.attr('r');
+      nodeCircle
+        .transition()
+        .duration(150)
+        .attr('r', parseFloat(originalRadius) * 1.5)
+        .transition()
+        .duration(300)
+        .attr('r', originalRadius);
+
+      // Cleanup
+      setTimeout(() => {
+        animContainer.remove();
+      }, 1000);
+    }, 1000);
+  }, []);
 
   // Load graph data
   const loadGraph = useCallback(async () => {
@@ -78,6 +248,9 @@ export default function MindMap() {
     try {
       const sessions = await getHeartbeatSessions();
       setHeartbeatSessions(sessions);
+      if (sessions.length > 0 && lastSessionIdRef.current === null) {
+        lastSessionIdRef.current = sessions[0].id;
+      }
     } catch (e) {
       console.error('Failed to load heartbeat sessions:', e);
     }
@@ -111,6 +284,64 @@ export default function MindMap() {
     }
   };
 
+  // Pulse once
+  const [isPulsing, setIsPulsing] = useState(false);
+
+  const handlePulseOnce = () => {
+    setIsPulsing(true);
+
+    // Fire off the pulse request
+    pulseHeartbeatOnce()
+      .then(config => {
+        setNextBeatAt(config.next_beat_at || null);
+      })
+      .catch(e => console.error('Failed to pulse heartbeat:', e));
+
+    // Show loading for 2 seconds then stop
+    setTimeout(() => setIsPulsing(false), 2000);
+  };
+
+  // Listen for heartbeat events via WebSocket
+  useEffect(() => {
+    const gateway = getGateway();
+
+    const handleHeartbeatStarted = (data: unknown) => {
+      const event = data as { mind_node_id?: number };
+      console.log('[WS] Heartbeat started:', event);
+      if (event.mind_node_id) {
+        triggerHeartbeatAnimation(event.mind_node_id);
+      }
+    };
+
+    const handleHeartbeatCompleted = async (data: unknown) => {
+      const event = data as { mind_node_id?: number };
+      console.log('[WS] Heartbeat completed:', event);
+      // Refresh sessions list
+      try {
+        const sessions = await getHeartbeatSessions();
+        setHeartbeatSessions(sessions);
+        if (sessions.length > 0) {
+          lastSessionIdRef.current = sessions[0].id;
+        }
+      } catch (e) {
+        console.error('Failed to refresh sessions:', e);
+      }
+    };
+
+    // Connect and subscribe to events
+    gateway.connect().then(() => {
+      gateway.on('heartbeat_started', handleHeartbeatStarted);
+      gateway.on('heartbeat_completed', handleHeartbeatCompleted);
+    }).catch(e => {
+      console.error('Failed to connect to gateway:', e);
+    });
+
+    return () => {
+      gateway.off('heartbeat_started', handleHeartbeatStarted);
+      gateway.off('heartbeat_completed', handleHeartbeatCompleted);
+    };
+  }, [triggerHeartbeatAnimation]);
+
   useEffect(() => {
     loadGraph();
     loadHeartbeatSessions();
@@ -131,7 +362,7 @@ export default function MindMap() {
 
       if (diff <= 0) {
         setCountdown('soon...');
-        // Refresh config to get new next_beat_at
+        // Refresh config (WS will handle new session detection)
         loadHeartbeatConfig();
         return;
       }
@@ -244,7 +475,7 @@ export default function MindMap() {
     svg.selectAll('*').remove();
 
     // Create main group for zoom/pan
-    const g = svg.append('g');
+    const g = svg.append('g').attr('class', 'main-group');
 
     // Setup zoom
     const zoom = d3.zoom<SVGSVGElement, unknown>()
@@ -594,6 +825,18 @@ export default function MindMap() {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="p-4 border-t border-gray-800">
+            <Button
+              variant="secondary"
+              onClick={handlePulseOnce}
+              isLoading={isPulsing}
+              className="w-full"
+            >
+              <Zap className="w-4 h-4 mr-2" />
+              Pulse Once
+            </Button>
           </div>
         </div>
       </div>

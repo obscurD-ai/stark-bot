@@ -99,7 +99,7 @@ impl AiClient {
             Some(&settings.endpoint),
             Some(model),
             burner_private_key,
-            Some(settings.max_tokens as u32),
+            Some(settings.max_response_tokens as u32),
         )?;
         Ok(AiClient::OpenAI(client))
     }

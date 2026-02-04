@@ -105,12 +105,14 @@ impl Database {
 
         // Agent settings table (AI endpoint configuration - simplified for x402)
         // Note: provider, api_key, model columns are deprecated (kept for migration compatibility)
+        // max_tokens renamed to max_response_tokens, max_context_tokens added for compaction
         conn.execute(
             "CREATE TABLE IF NOT EXISTS agent_settings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 endpoint TEXT NOT NULL,
                 model_archetype TEXT NOT NULL DEFAULT 'kimi',
-                max_tokens INTEGER NOT NULL DEFAULT 40000,
+                max_response_tokens INTEGER NOT NULL DEFAULT 40000,
+                max_context_tokens INTEGER NOT NULL DEFAULT 100000,
                 enabled INTEGER NOT NULL DEFAULT 0,
                 secret_key TEXT,
                 created_at TEXT NOT NULL,
@@ -146,7 +148,7 @@ impl Database {
             conn.execute("ALTER TABLE agent_settings ADD COLUMN model_archetype TEXT DEFAULT 'kimi'", [])?;
         }
 
-        // Migration: Add max_tokens column if it doesn't exist (for old DBs)
+        // Migration: Rename max_tokens to max_response_tokens (for old DBs)
         let has_max_tokens: bool = conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('agent_settings') WHERE name='max_tokens'",
@@ -156,8 +158,37 @@ impl Database {
             .map(|c| c > 0)
             .unwrap_or(false);
 
-        if !has_max_tokens {
-            conn.execute("ALTER TABLE agent_settings ADD COLUMN max_tokens INTEGER DEFAULT 40000", [])?;
+        if has_max_tokens {
+            // SQLite 3.25+ supports RENAME COLUMN
+            let _ = conn.execute("ALTER TABLE agent_settings RENAME COLUMN max_tokens TO max_response_tokens", []);
+        }
+
+        // Migration: Add max_response_tokens if it doesn't exist
+        let has_max_response_tokens: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('agent_settings') WHERE name='max_response_tokens'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if !has_max_response_tokens {
+            conn.execute("ALTER TABLE agent_settings ADD COLUMN max_response_tokens INTEGER DEFAULT 40000", [])?;
+        }
+
+        // Migration: Add max_context_tokens for dynamic compaction thresholds
+        let has_max_context_tokens: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('agent_settings') WHERE name='max_context_tokens'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if !has_max_context_tokens {
+            conn.execute("ALTER TABLE agent_settings ADD COLUMN max_context_tokens INTEGER DEFAULT 100000", [])?;
         }
 
         // Migration: Add secret_key column if it doesn't exist (for old DBs)

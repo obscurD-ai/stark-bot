@@ -101,7 +101,11 @@ pub fn config(cfg: &mut web::ServiceConfig) {
 // =====================================================
 
 /// Get EIP-8004 configuration
-async fn get_config(_req: HttpRequest) -> impl Responder {
+async fn get_config(state: web::Data<AppState>, req: HttpRequest) -> impl Responder {
+    if let Err(resp) = validate_auth(&state, &req) {
+        return resp;
+    }
+
     let config = Eip8004Config::from_env();
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -123,10 +127,15 @@ async fn get_config(_req: HttpRequest) -> impl Responder {
 // Identity Endpoints
 // =====================================================
 
-/// Get our agent's identity (public endpoint - no auth required)
+/// Get our agent's identity
 async fn get_our_identity(
     state: web::Data<AppState>,
+    req: HttpRequest,
 ) -> impl Responder {
+    if let Err(resp) = validate_auth(&state, &req) {
+        return resp;
+    }
+
     let conn = state.db.conn.lock().unwrap();
 
     // Check if we have a stored identity

@@ -133,6 +133,23 @@ impl ContextManager {
         self
     }
 
+    /// Sync session's max_context_tokens with agent settings
+    /// This ensures compaction triggers at the right threshold for the configured endpoint
+    pub fn sync_max_context_tokens(&self, session_id: i64, agent_max_tokens: i32) {
+        // Only update if different from current value
+        if let Ok(Some(session)) = self.db.get_chat_session(session_id) {
+            if session.max_context_tokens != agent_max_tokens {
+                log::info!(
+                    "[CONTEXT] Syncing session {} max_context_tokens: {} -> {}",
+                    session_id, session.max_context_tokens, agent_max_tokens
+                );
+                if let Err(e) = self.db.update_session_max_context_tokens(session_id, agent_max_tokens) {
+                    log::error!("[CONTEXT] Failed to update max_context_tokens: {}", e);
+                }
+            }
+        }
+    }
+
     /// Check if compaction is needed for a session (original all-at-once threshold)
     pub fn needs_compaction(&self, session_id: i64) -> bool {
         if let Ok(session) = self.db.get_chat_session(session_id) {

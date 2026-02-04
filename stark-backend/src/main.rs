@@ -228,40 +228,56 @@ async fn restore_backup_data(
         log::info!("[Keystore] Restored {} API keys", restored_keys);
     }
 
+    // Clear existing mind nodes and connections before restore
+    match db.clear_mind_nodes_for_restore() {
+        Ok((nodes_deleted, connections_deleted)) => {
+            if nodes_deleted > 0 || connections_deleted > 0 {
+                log::info!("[Keystore] Cleared {} nodes and {} connections for restore", nodes_deleted, connections_deleted);
+            }
+        }
+        Err(e) => log::warn!("[Keystore] Failed to clear mind nodes for restore: {}", e),
+    }
+
     // Restore mind map nodes (create ID mapping for connections)
     let mut old_to_new_id: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     let mut restored_nodes = 0;
 
+    // First, get or create trunk and map backup trunk ID to it
+    let current_trunk = db.get_or_create_trunk_node().ok();
+    if let Some(ref trunk) = current_trunk {
+        for node in &backup_data.mind_map_nodes {
+            if node.is_trunk {
+                old_to_new_id.insert(node.id, trunk.id);
+                if !node.body.is_empty() {
+                    let _ = db.update_mind_node(trunk.id, &db::tables::mind_nodes::UpdateMindNodeRequest {
+                        body: Some(node.body.clone()),
+                        position_x: node.position_x,
+                        position_y: node.position_y,
+                    });
+                }
+                break;
+            }
+        }
+    }
+
     for node in &backup_data.mind_map_nodes {
         if node.is_trunk {
-            // Get or create trunk and map to it
-            match db.get_or_create_trunk_node() {
-                Ok(trunk) => {
-                    old_to_new_id.insert(node.id, trunk.id);
-                    if !node.body.is_empty() {
-                        let _ = db.update_mind_node(trunk.id, &db::tables::mind_nodes::UpdateMindNodeRequest {
-                            body: Some(node.body.clone()),
-                            position_x: node.position_x,
-                            position_y: node.position_y,
-                        });
-                    }
-                }
-                Err(e) => log::warn!("[Keystore] Failed to get trunk node: {}", e),
+            // Already handled above
+            continue;
+        }
+
+        let request = db::tables::mind_nodes::CreateMindNodeRequest {
+            body: Some(node.body.clone()),
+            position_x: node.position_x,
+            position_y: node.position_y,
+            parent_id: None,
+        };
+        match db.create_mind_node(&request) {
+            Ok(new_node) => {
+                old_to_new_id.insert(node.id, new_node.id);
+                restored_nodes += 1;
             }
-        } else {
-            let request = db::tables::mind_nodes::CreateMindNodeRequest {
-                body: Some(node.body.clone()),
-                position_x: node.position_x,
-                position_y: node.position_y,
-                parent_id: None,
-            };
-            match db.create_mind_node(&request) {
-                Ok(new_node) => {
-                    old_to_new_id.insert(node.id, new_node.id);
-                    restored_nodes += 1;
-                }
-                Err(e) => log::warn!("[Keystore] Failed to restore mind node: {}", e),
-            }
+            Err(e) => log::warn!("[Keystore] Failed to restore mind node: {}", e),
         }
     }
     if restored_nodes > 0 {

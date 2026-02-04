@@ -789,7 +789,8 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
     }
 
     let key_count = backup.api_keys.len();
-    let node_count = backup.mind_map_nodes.len();
+    // Count only non-trunk nodes to be consistent with restore
+    let node_count = backup.mind_map_nodes.iter().filter(|n| !n.is_trunk).count();
     let connection_count = backup.mind_map_connections.len();
     let cron_job_count = backup.cron_jobs.len();
     let has_settings = backup.bot_settings.is_some();
@@ -1416,11 +1417,14 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             })
             .collect();
 
+        // Count only non-trunk nodes to match restore behavior
+        let non_trunk_node_count = backup_data.mind_map_nodes.iter().filter(|n| !n.is_trunk).count();
+
         return HttpResponse::Ok().json(PreviewKeysResponse {
             success: true,
             key_count: previews.len(),
             keys: previews,
-            node_count: Some(backup_data.mind_map_nodes.len()),
+            node_count: Some(non_trunk_node_count),
             connection_count: Some(backup_data.mind_map_connections.len()),
             cron_job_count: Some(backup_data.cron_jobs.len()),
             has_settings: Some(backup_data.bot_settings.is_some()),

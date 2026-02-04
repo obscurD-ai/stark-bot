@@ -17,6 +17,7 @@ interface Session {
   message_count?: number;
   completion_status?: string;
   initial_query?: string;
+  safe_mode?: boolean;
 }
 
 function isValidStatus(status: string | undefined): status is CompletionStatus {
@@ -393,9 +394,17 @@ export default function Sessions() {
           </Button>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-white mb-1">
-                {selectedSession.channel_type} - Session {selectedSession.id}
-              </h1>
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-xl sm:text-2xl font-bold text-white">
+                  {selectedSession.channel_type} - Session {selectedSession.id}
+                </h1>
+                {selectedSession.safe_mode && (
+                  <span className="text-xs px-2 py-1 bg-orange-500/20 text-orange-400 rounded-full flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Safe Mode
+                  </span>
+                )}
+              </div>
               {selectedSession.channel_type === 'cron' && (() => {
                 const jobId = getCronJobId(selectedSession.platform_chat_id);
                 const cronJob = jobId ? cronJobs.get(jobId) : null;
@@ -592,6 +601,12 @@ export default function Sessions() {
                             </span>
                           );
                         })()}
+                        {session.safe_mode && (
+                          <span className="text-xs px-1.5 sm:px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded-full flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            <span className="hidden sm:inline">Safe Mode</span>
+                          </span>
+                        )}
                       </div>
                       {/* Cron job info */}
                       {session.channel_type === 'cron' && (() => {

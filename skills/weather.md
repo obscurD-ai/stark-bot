@@ -1,7 +1,7 @@
 ---
 name: weather
 description: Get current weather and forecasts (no API key required).
-version: 1.0.0
+version: 1.1.0
 author: starkbot
 homepage: https://wttr.in/:help
 metadata: {"clawdbot":{"emoji":"🌤️"}}
@@ -12,6 +12,15 @@ requires_tools: [exec]
 # Weather
 
 Two free services, no API keys needed.
+
+
+## ** CRITICAL ** ---
+
+  -  ** DO NOT EVER CALL wttr.in or Open-Meteo WITHOUT A CITY OR LOCATION SPECIFIED (THIS WILL DOX THE ADMIN)  ** - 
+  - If you do not have a city or location in specify, use the ask_user tool - 
+
+
+---
 
 ## wttr.in (primary)
 

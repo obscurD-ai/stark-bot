@@ -1,4 +1,5 @@
 use crate::channels::dispatcher::MessageDispatcher;
+use crate::channels::safe_mode_rate_limiter::SafeModeChannelRateLimiter;
 use crate::channels::types::{ChannelType, NormalizedMessage};
 use crate::db::Database;
 use crate::discord_hooks;
@@ -130,6 +131,7 @@ struct DiscordHandler {
     dispatcher: Arc<MessageDispatcher>,
     broadcaster: Arc<EventBroadcaster>,
     db: Arc<Database>,
+    safe_mode_rate_limiter: SafeModeChannelRateLimiter,
 }
 
 #[serenity::async_trait]
@@ -174,22 +176,26 @@ impl EventHandler for DiscordHandler {
 
                 // If module says forward to agent, use the forwarded text
                 if let Some(forward) = result.forward_to_agent {
-                    // Continue with forwarded request (admin command)
                     let user_name = forward.user_name;
-                    let user_id = forward.user_id;
+                    let user_id = forward.user_id.clone();
+
+                    // Check safe mode rate limit for non-admin queries
+                    if forward.force_safe_mode {
+                        if let Err(rate_limit_msg) = self.safe_mode_rate_limiter.check_and_record_query(&user_id, "discord") {
+                            log::info!("Discord: Rate limiting user {} - {}", user_id, rate_limit_msg);
+                            let _ = msg.channel_id.say(&ctx.http, format!("⏳ {}", rate_limit_msg)).await;
+                            return;
+                        }
+                    }
 
                     log::info!(
-                        "Discord: Admin command from {} ({}): {}",
+                        "Discord: {} from {} ({}): {}",
+                        if forward.force_safe_mode { "Safe mode query" } else { "Admin command" },
                         user_name,
                         user_id,
-                        if forward.text.len() > 50 {
-                            format!("{}...", &forward.text[..50])
-                        } else {
-                            forward.text.clone()
-                        }
+                        if forward.text.len() > 50 { format!("{}...", &forward.text[..50]) } else { forward.text.clone() }
                     );
 
-                    // Add source hint to help the agent understand the context
                     let text_with_hint = format!(
                         "[DISCORD MESSAGE - Use discord skill for tipping/messaging. Use discord_resolve_user to resolve @mentions to addresses.]\n\n{}",
                         forward.text
@@ -208,7 +214,6 @@ impl EventHandler for DiscordHandler {
                         force_safe_mode: forward.force_safe_mode,
                     };
 
-                    // Continue to dispatch below with this normalized message
                     self.dispatch_and_respond(&ctx, &msg, normalized, &user_name).await;
                     return;
                 }
@@ -557,6 +562,7 @@ pub async fn start_discord_listener(
     dispatcher: Arc<MessageDispatcher>,
     broadcaster: Arc<EventBroadcaster>,
     db: Arc<Database>,
+    safe_mode_rate_limiter: SafeModeChannelRateLimiter,
     mut shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let channel_id = channel.id;
@@ -576,6 +582,7 @@ pub async fn start_discord_listener(
         dispatcher,
         broadcaster: broadcaster.clone(),
         db,
+        safe_mode_rate_limiter,
     };
 
     // Create client

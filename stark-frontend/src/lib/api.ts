@@ -1089,6 +1089,7 @@ export interface BotSettings {
   custom_rpc_endpoints?: Record<string, string>;
   max_tool_iterations: number;
   rogue_mode_enabled: boolean;
+  safe_mode_max_queries_per_10min: number;
   created_at: string;
   updated_at: string;
 }
@@ -1105,6 +1106,7 @@ export async function updateBotSettings(data: {
   custom_rpc_endpoints?: Record<string, string>;
   max_tool_iterations?: number;
   rogue_mode_enabled?: boolean;
+  safe_mode_max_queries_per_10min?: number;
 }): Promise<BotSettings> {
   return apiFetch('/bot-settings', {
     method: 'PUT',

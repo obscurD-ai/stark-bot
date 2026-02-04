@@ -28,7 +28,7 @@ mod tool_validators;
 mod tx_queue;
 mod keystore_client;
 
-use channels::{ChannelManager, MessageDispatcher};
+use channels::{ChannelManager, MessageDispatcher, SafeModeChannelRateLimiter};
 use tx_queue::TxQueueManager;
 use config::Config;
 use db::Database;
@@ -52,6 +52,7 @@ pub struct AppState {
     pub broadcaster: Arc<EventBroadcaster>,
     pub hook_manager: Arc<HookManager>,
     pub tx_queue: Arc<TxQueueManager>,
+    pub safe_mode_rate_limiter: SafeModeChannelRateLimiter,
 }
 
 /// SPA fallback handler - serves index.html for client-side routing
@@ -207,6 +208,10 @@ async fn main() -> std::io::Result<()> {
         log::info!("Serving frontend from: {}", frontend_dist);
     }
 
+    // Initialize safe mode channel rate limiter
+    log::info!("Initializing safe mode channel rate limiter");
+    let safe_mode_rate_limiter = SafeModeChannelRateLimiter::new(db.clone());
+
     let tool_reg = tool_registry.clone();
     let skill_reg = skill_registry.clone();
     let disp = dispatcher.clone();
@@ -216,6 +221,7 @@ async fn main() -> std::io::Result<()> {
     let chan_mgr = channel_manager.clone();
     let hook_mgr = hook_manager.clone();
     let tx_q = tx_queue.clone();
+    let safe_mode_rl = safe_mode_rate_limiter.clone();
     let frontend_dist = frontend_dist.to_string();
 
     let server = HttpServer::new(move || {
@@ -239,6 +245,7 @@ async fn main() -> std::io::Result<()> {
                 broadcaster: Arc::clone(&bcast),
                 hook_manager: Arc::clone(&hook_mgr),
                 tx_queue: Arc::clone(&tx_q),
+                safe_mode_rate_limiter: safe_mode_rl.clone(),
             }))
             .app_data(web::Data::new(Arc::clone(&sched)))
             // WebSocket data for /ws route

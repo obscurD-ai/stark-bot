@@ -111,8 +111,6 @@ impl MessageDispatcher {
         skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
     ) -> Self {
         let memory_config = MemoryConfig::from_env();
-        let context_manager = ContextManager::new(db.clone())
-            .with_memory_config(memory_config.clone());
 
         // Create SubAgentManager for spawning background AI agents
         let subagent_manager = Arc::new(SubAgentManager::new_with_config(
@@ -136,6 +134,14 @@ impl MessageDispatcher {
                 None
             }
         };
+
+        // Create context manager and link memory store to it
+        let mut context_manager = ContextManager::new(db.clone())
+            .with_memory_config(memory_config.clone());
+        if let Some(ref store) = memory_store {
+            context_manager = context_manager.with_memory_store(store.clone());
+            log::info!("[DISPATCHER] Memory store linked to context manager");
+        }
 
         Self {
             db,
@@ -178,14 +184,19 @@ impl MessageDispatcher {
         // Create a minimal execution tracker for legacy use
         let execution_tracker = Arc::new(ExecutionTracker::new(broadcaster.clone()));
         let memory_config = MemoryConfig::from_env();
-        let context_manager = ContextManager::new(db.clone())
-            .with_memory_config(memory_config.clone());
 
         // Create QMD memory store
         let memory_dir = std::path::PathBuf::from(memory_config.memory_dir.clone());
         let memory_store = MemoryStore::new(memory_dir, &memory_config.memory_db_path())
             .ok()
             .map(Arc::new);
+
+        // Create context manager and link memory store to it
+        let mut context_manager = ContextManager::new(db.clone())
+            .with_memory_config(memory_config.clone());
+        if let Some(ref store) = memory_store {
+            context_manager = context_manager.with_memory_store(store.clone());
+        }
 
         Self {
             db: db.clone(),
@@ -503,7 +514,10 @@ impl MessageDispatcher {
             // - task_complete: Mark task done (safe)
             // - memory_read: Read-only memory retrieval (safe)
             // - memory_search: Read-only memory search (safe)
+            // - discord_read: Read-only Discord operations (safe)
+            // - discord_lookup: Read-only Discord server/channel lookup (safe)
             // NOTE: ask_user is NOT included - Twitter is one-shot, can't wait for response
+            // NOTE: discord_write is NOT included - write operations are admin only
             tool_config.allow_list = vec![
                 "set_agent_subtype".to_string(),
                 "token_lookup".to_string(),
@@ -511,6 +525,8 @@ impl MessageDispatcher {
                 "task_complete".to_string(),
                 "memory_read".to_string(),
                 "memory_search".to_string(),
+                "discord_read".to_string(),
+                "discord_lookup".to_string(),
             ];
             // Clear any deny list that might interfere
             tool_config.deny_list.clear();

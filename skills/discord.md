@@ -1,18 +1,24 @@
 ---
 name: discord
 description: "Control Discord: send messages, react, post stickers/emojis, run polls, manage threads/pins, fetch permissions/member/role/channel info, handle moderation."
-version: 2.5.0
+version: 2.6.0
 author: starkbot
 metadata: {"clawdbot":{"emoji":"🎮"}}
 tags: [discord, social, messaging, communication, social-media]
-requires_tools: [discord, discord_lookup, agent_send, discord_resolve_user]
+requires_tools: [discord_read, discord_write, discord_lookup, agent_send, discord_resolve_user]
 ---
 
 # Discord Actions
 
 ## Overview
 
-Use `discord` to manage messages, reactions, threads, polls, and moderation. You can disable groups via `discord.actions.*` (defaults to enabled, except roles/moderation). The tool uses the bot token configured for Clawdbot.
+Discord operations are split into **read** and **write** tools for security:
+
+- **`discord_read`** - Read-only operations (safe for non-admin/safe mode): readMessages, searchMessages, permissions, memberInfo, roleInfo, channelInfo, channelList
+- **`discord_write`** - Write operations (admin only): sendMessage, react, editMessage, deleteMessage
+- **`discord_lookup`** - Server/channel discovery (safe for non-admin/safe mode): list_servers, search_servers, list_channels, search_channels
+
+You can disable groups via `discord.actions.*` (defaults to enabled, except roles/moderation). The tools use the bot token configured for Clawdbot.
 
 ## Default Channel
 
@@ -33,11 +39,11 @@ Message context lines include `discord message id` and `channel` fields you can 
 
 ## Actions
 
-### Read recent messages from a channel
+### Read recent messages from a channel (discord_read)
 
 Read the last N messages from any channel:
 
-```tool:discord
+```tool:discord_read
 action: readMessages
 channelId: "123456789"
 limit: 10
@@ -63,7 +69,7 @@ limit: 10
 
 **With before/after cursor (pagination):**
 
-```tool:discord
+```tool:discord_read
 action: readMessages
 channelId: "123456789"
 limit: 10
@@ -132,7 +138,7 @@ query: "general"
 
 ### Quick send with agent_send
 
-For simple messages without the full discord tool:
+For simple messages without the full discord_write tool:
 
 ```tool:agent_send
 channel: "123456789012345678"
@@ -142,31 +148,31 @@ platform: discord
 
 
 
-### React to a message
+### React to a message (discord_write)
 
-```tool:discord
+```tool:discord_write
 action: react
 channelId: "123"
 messageId: "456"
 emoji: "✅"
 ```
- 
 
-### Check bot permissions for a channel
 
-```tool:discord
+### Check bot permissions for a channel (discord_read)
+
+```tool:discord_read
 action: permissions
 channelId: "123"
 ```
 
 
- 
 
-### Send/edit/delete a message
+
+### Send/edit/delete a message (discord_write)
 
 **If the user doesn't specify a channel, default to "bot-commands" first, then "general" as fallback.** Look up the channel ID using `discord_lookup` - search for "bot-commands" first, and if not found, search for "general".
 
-```tool:discord
+```tool:discord_write
 action: sendMessage
 to: "channel:123"
 content: "Hello from Clawdbot"
@@ -174,7 +180,7 @@ content: "Hello from Clawdbot"
 
 **With media attachment:**
 
-```tool:discord
+```tool:discord_write
 action: sendMessage
 to: "channel:123"
 content: "Check out this audio!"
@@ -185,56 +191,55 @@ mediaUrl: "file:///tmp/audio.mp3"
 - `mediaUrl` supports local files (`file:///path/to/file`) and remote URLs (`https://...`)
 - Optional `replyTo` with a message ID to reply to a specific message
 
-```tool:discord
+```tool:discord_write
 action: editMessage
 channelId: "123"
 messageId: "456"
 content: "Fixed typo"
 ```
 
-```tool:discord
+```tool:discord_write
 action: deleteMessage
 channelId: "123"
 messageId: "456"
 ```
 
- 
-### Search messages
 
-```tool:discord
+### Search messages (discord_read)
+
+```tool:discord_read
 action: searchMessages
 guildId: "999"
 content: "release notes"
-channelIds: ["123", "456"]
 limit: 10
 ```
 
-### Member + role info
+### Member + role info (discord_read)
 
-```tool:discord
+```tool:discord_read
 action: memberInfo
 guildId: "999"
 userId: "111"
 ```
 
-```tool:discord
+```tool:discord_read
 action: roleInfo
 guildId: "999"
-``` 
+```
 
-### Channel info
+### Channel info (discord_read)
 
-```tool:discord
+```tool:discord_read
 action: channelInfo
 channelId: "123"
 ```
 
-```tool:discord
+```tool:discord_read
 action: channelList
 guildId: "999"
 ```
- 
- 
+
+
 ## Discord Writing Style Guide
 
 **Keep it conversational!** Discord is a chat platform, not documentation.

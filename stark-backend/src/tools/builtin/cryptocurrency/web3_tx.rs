@@ -518,7 +518,7 @@ mod tests {
 
         let params: SendEthParams = serde_json::from_value(json).unwrap();
 
-        assert_eq!(params.network, "base");
+        assert_eq!(params.network, Some("base".to_string()));
     }
 
     #[test]
@@ -526,7 +526,8 @@ mod tests {
         let json = json!({});
 
         let params: SendEthParams = serde_json::from_value(json).unwrap();
-        assert_eq!(params.network, "base");
+        // When no network is specified, it's None - the runtime code defaults to "base"
+        assert_eq!(params.network, None);
     }
 
     #[test]

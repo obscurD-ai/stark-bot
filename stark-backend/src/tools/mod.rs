@@ -84,7 +84,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
 
     // Messaging tools
     registry.register(Arc::new(builtin::AgentSendTool::new()));
-    registry.register(Arc::new(builtin::DiscordTool::new()));
+    registry.register(Arc::new(builtin::DiscordReadTool::new()));
+    registry.register(Arc::new(builtin::DiscordWriteTool::new()));
     registry.register(Arc::new(builtin::DiscordLookupTool::new()));
     registry.register(Arc::new(builtin::TwitterPostTool::new()));
 

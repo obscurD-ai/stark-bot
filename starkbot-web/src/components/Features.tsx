@@ -1,5 +1,6 @@
 import { Code, CreditCard, Globe, AlertTriangle } from 'lucide-react'
 import ChatDemo from './ChatDemo'
+import MindMapDemo from './MindMapDemo'
 
 const features = [
   {
@@ -33,6 +34,19 @@ export function Features() {
           </p>
           <div className="chat-demo-glow rounded-xl">
             <ChatDemo />
+          </div>
+        </div>
+
+        {/* Mind Map Demo Section */}
+        <div className="mb-16">
+          <h2 className="text-3xl sm:text-4xl font-bold text-center mb-4 text-white">
+            Autonomous Mind Map
+          </h2>
+          <p className="text-white/50 text-center mb-8 max-w-2xl mx-auto">
+            Define random actions for your bot to execute on heartbeat pulses. Build a tree of possible behaviors.
+          </p>
+          <div className="chat-demo-glow rounded-xl">
+            <MindMapDemo />
           </div>
         </div>
 

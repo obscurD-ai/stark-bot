@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as d3 from 'd3';
 import { animate } from 'animejs';
-import { X, Save, Trash2, Menu, Clock, MessageSquare, Zap } from 'lucide-react';
+import { X, Save, Trash2, Menu, Clock, MessageSquare, Zap, GitBranch } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import HeartbeatIcon from '@/components/HeartbeatIcon';
 import {
@@ -62,6 +62,18 @@ export default function MindMap() {
   const [nextBeatAt, setNextBeatAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<string | null>(null);
   const lastSessionIdRef = useRef<number | null>(null);
+
+  // Derived state for node executions (sessions with mind_node_id)
+  const nodeExecutions = useMemo(() => {
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    return heartbeatSessions
+      .filter(s => s.mind_node_id !== null)
+      .slice(0, 10)
+      .map(session => ({
+        ...session,
+        node: nodeMap.get(session.mind_node_id!)
+      }));
+  }, [heartbeatSessions, nodes]);
 
   // Rainbow swirl animation on heartbeat using anime.js
   const triggerHeartbeatAnimation = useCallback((nodeId: number) => {
@@ -823,8 +835,8 @@ export default function MindMap() {
           }`}
           style={{ marginRight: sidebarOpen ? 0 : -320 }}
         >
-          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Heartbeat History</h2>
+          {/* Close button header */}
+          <div className="p-2 border-b border-gray-800 flex justify-end">
             <button
               onClick={() => setSidebarOpen(false)}
               className="p-1 text-gray-400 hover:text-white"
@@ -833,44 +845,103 @@ export default function MindMap() {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {heartbeatSessions.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">
-                No heartbeat sessions yet
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-800">
-                {heartbeatSessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className="p-3 hover:bg-gray-800 cursor-pointer transition-colors"
-                    onMouseEnter={() => setHighlightedNodeId(session.mind_node_id)}
-                    onMouseLeave={() => setHighlightedNodeId(null)}
-                    onClick={() => navigate(`/sessions/${session.id}`)}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <Clock size={14} className="text-gray-500" />
-                        <span className="text-sm text-gray-300">
-                          {formatDate(session.created_at)}
-                        </span>
+          {/* Heartbeat History Section */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="px-4 py-2 border-b border-gray-800">
+              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Clock size={14} />
+                Heartbeat History
+              </h2>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {heartbeatSessions.length === 0 ? (
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  No heartbeat sessions yet
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-800">
+                  {heartbeatSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="p-3 hover:bg-gray-800 cursor-pointer transition-colors"
+                      onMouseEnter={() => setHighlightedNodeId(session.mind_node_id)}
+                      onMouseLeave={() => setHighlightedNodeId(null)}
+                      onClick={() => navigate(`/sessions/${session.id}`)}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <Clock size={14} className="text-gray-500" />
+                          <span className="text-sm text-gray-300">
+                            {formatDate(session.created_at)}
+                          </span>
+                        </div>
+                        {session.mind_node_id && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                            Node #{session.mind_node_id}
+                          </span>
+                        )}
                       </div>
-                      {session.mind_node_id && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
-                          Node #{session.mind_node_id}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <MessageSquare size={12} />
+                        <span>{session.message_count} messages</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <MessageSquare size={12} />
-                      <span>{session.message_count} messages</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
+          {/* Mind Node Executions Section */}
+          <div className="flex-1 min-h-0 flex flex-col border-t border-gray-800">
+            <div className="px-4 py-2 border-b border-gray-800">
+              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                <GitBranch size={14} />
+                Mind Node Executions
+              </h2>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {nodeExecutions.length === 0 ? (
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  No node executions yet
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-800">
+                  {nodeExecutions.map((execution) => (
+                    <div
+                      key={execution.id}
+                      className="p-3 hover:bg-gray-800 cursor-pointer transition-colors"
+                      onMouseEnter={() => setHighlightedNodeId(execution.mind_node_id)}
+                      onMouseLeave={() => setHighlightedNodeId(null)}
+                      onClick={() => navigate(`/sessions/${execution.id}`)}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          execution.node?.is_trunk
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-amber-500/20 text-amber-400'
+                        }`}>
+                          {execution.node?.is_trunk ? 'Trunk' : `Node #${execution.mind_node_id}`}
+                        </span>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span>{formatDate(execution.created_at)}</span>
+                          <MessageSquare size={12} />
+                          <span>{execution.message_count}</span>
+                        </div>
+                      </div>
+                      {execution.node && (
+                        <p className="text-xs text-gray-400 truncate">
+                          {execution.node.body || <span className="italic text-gray-600">Empty node</span>}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Pulse Once Button */}
           <div className="p-4 border-t border-gray-800">
             <Button
               variant="secondary"

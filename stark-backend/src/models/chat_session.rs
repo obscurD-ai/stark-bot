@@ -207,6 +207,9 @@ pub struct ChatSessionResponse {
     // Initial query (first user message) - for web sessions
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_query: Option<String>,
+    // Safe mode - from the channel settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub safe_mode: Option<bool>,
 }
 
 impl From<ChatSession> for ChatSessionResponse {
@@ -232,6 +235,7 @@ impl From<ChatSession> for ChatSessionResponse {
             compaction_id: session.compaction_id,
             completion_status: session.completion_status,
             initial_query: None,
+            safe_mode: None,
         }
     }
 }

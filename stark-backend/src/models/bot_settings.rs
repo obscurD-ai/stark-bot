@@ -5,6 +5,9 @@ use std::collections::HashMap;
 /// Default max tool iterations
 pub const DEFAULT_MAX_TOOL_ITERATIONS: i32 = 100;
 
+/// Default max safe mode queries per user per 10 minutes
+pub const DEFAULT_SAFE_MODE_MAX_QUERIES_PER_10MIN: i32 = 5;
+
 /// Bot settings stored in database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BotSettings {
@@ -20,6 +23,8 @@ pub struct BotSettings {
     pub max_tool_iterations: i32,
     /// Rogue mode: when true, bot operates in "rogue" mode instead of "partner" mode
     pub rogue_mode_enabled: bool,
+    /// Maximum safe mode queries per user per 10 minutes
+    pub safe_mode_max_queries_per_10min: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -35,6 +40,7 @@ impl Default for BotSettings {
             custom_rpc_endpoints: None,
             max_tool_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
             rogue_mode_enabled: false,
+            safe_mode_max_queries_per_10min: DEFAULT_SAFE_MODE_MAX_QUERIES_PER_10MIN,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -51,4 +57,5 @@ pub struct UpdateBotSettingsRequest {
     pub custom_rpc_endpoints: Option<HashMap<String, String>>,
     pub max_tool_iterations: Option<i32>,
     pub rogue_mode_enabled: Option<bool>,
+    pub safe_mode_max_queries_per_10min: Option<i32>,
 }

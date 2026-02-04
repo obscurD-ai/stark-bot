@@ -24,3 +24,9 @@
 
 
     4.  lets set up rate limits for safe mode channels -- only spin up 1 every second max        -- maybe put others in a queue that gets poppsed off         
+
+
+    5 . in discord actually reply to pppl ? 
+
+
+    6. split the journal tools in teh read and write for safe mode 

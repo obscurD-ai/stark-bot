@@ -1,11 +1,13 @@
 pub mod discord;
 pub mod dispatcher;
+pub mod safe_mode_rate_limiter;
 pub mod slack;
 pub mod telegram;
 pub mod twitter;
 pub mod types;
 
 pub use dispatcher::MessageDispatcher;
+pub use safe_mode_rate_limiter::{SafeModeChannelRateLimiter, SafeModeQueryResult};
 pub use types::{ChannelHandle, ChannelType, NormalizedMessage};
 
 use crate::db::Database;
@@ -184,12 +186,14 @@ impl ChannelManager {
             }
             types::ChannelType::Discord => {
                 let db = self.db.clone();
+                let safe_mode_rate_limiter = SafeModeChannelRateLimiter::new(db.clone());
                 tokio::spawn(async move {
                     let result = discord::start_discord_listener(
                         channel,
                         dispatcher,
                         broadcaster.clone(),
                         db,
+                        safe_mode_rate_limiter,
                         shutdown_rx,
                     )
                     .await;

@@ -111,6 +111,19 @@ pub struct CreateChannelRequest {
     pub app_token: Option<String>,
 }
 
+/// Request type for creating a safe mode channel (with per-user rate limiting)
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSafeModeChannelRequest {
+    pub channel_type: String,
+    pub name: String,
+    pub bot_token: String,
+    pub app_token: Option<String>,
+    /// Platform-specific user ID (Discord snowflake, Telegram ID, etc.)
+    pub user_id: String,
+    /// Platform name (discord, telegram, twitter, etc.)
+    pub platform: String,
+}
+
 /// Request type for updating a channel
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateChannelRequest {

@@ -3,8 +3,8 @@ use serde::Serialize;
 
 use crate::models::{
     get_settings_for_channel_type, ChannelResponse, ChannelSettingsResponse,
-    ChannelSettingsSchemaResponse, ChannelType, CreateChannelRequest, UpdateChannelRequest,
-    UpdateChannelSettingsRequest,
+    ChannelSettingsSchemaResponse, ChannelType, CreateChannelRequest, CreateSafeModeChannelRequest,
+    UpdateChannelRequest, UpdateChannelSettingsRequest,
 };
 use crate::AppState;
 
@@ -26,11 +26,27 @@ pub struct ChannelOperationResponse {
     pub error: Option<String>,
 }
 
+/// Response for safe mode channel creation with rate limit info
+#[derive(Serialize)]
+pub struct SafeModeChannelResponse {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<ChannelResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Current queue length (how many pending requests)
+    pub queue_length: usize,
+    /// Milliseconds until next slot available
+    pub next_slot_ms: u64,
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api/channels")
             .route("", web::get().to(list_channels))
             .route("", web::post().to(create_channel))
+            .route("/safe-mode", web::post().to(create_safe_mode_channel))
+            .route("/safe-mode/status", web::get().to(safe_mode_rate_limit_status))
             .route("/settings/schema/{channel_type}", web::get().to(get_settings_schema))
             .route("/{id}", web::get().to(get_channel))
             .route("/{id}", web::put().to(update_channel))
@@ -227,6 +243,151 @@ async fn create_channel(
             })
         }
     }
+}
+
+/// Create a safe mode channel with rate limiting
+///
+/// Enforces two rate limits:
+/// 1. Global: Max 1 channel creation per second (queue-based)
+/// 2. Per-user: Max X queries per 10 minutes (configurable in Bot Settings)
+async fn create_safe_mode_channel(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+    body: web::Json<CreateSafeModeChannelRequest>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    // Validate channel type
+    if ChannelType::from_str(&body.channel_type).is_none() {
+        return HttpResponse::BadRequest().json(SafeModeChannelResponse {
+            success: false,
+            channel: None,
+            error: Some("Invalid channel type. Valid options: telegram, slack, discord, twitter".to_string()),
+            queue_length: state.safe_mode_rate_limiter.queue_len(),
+            next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+        });
+    }
+
+    // Validate bot token is not empty
+    if body.bot_token.trim().is_empty() {
+        return HttpResponse::BadRequest().json(SafeModeChannelResponse {
+            success: false,
+            channel: None,
+            error: Some("Bot token cannot be empty".to_string()),
+            queue_length: state.safe_mode_rate_limiter.queue_len(),
+            next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+        });
+    }
+
+    // Validate name is not empty
+    if body.name.trim().is_empty() {
+        return HttpResponse::BadRequest().json(SafeModeChannelResponse {
+            success: false,
+            channel: None,
+            error: Some("Channel name cannot be empty".to_string()),
+            queue_length: state.safe_mode_rate_limiter.queue_len(),
+            next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+        });
+    }
+
+    // Validate user_id is not empty
+    if body.user_id.trim().is_empty() {
+        return HttpResponse::BadRequest().json(SafeModeChannelResponse {
+            success: false,
+            channel: None,
+            error: Some("user_id cannot be empty".to_string()),
+            queue_length: state.safe_mode_rate_limiter.queue_len(),
+            next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+        });
+    }
+
+    // Validate platform is not empty
+    if body.platform.trim().is_empty() {
+        return HttpResponse::BadRequest().json(SafeModeChannelResponse {
+            success: false,
+            channel: None,
+            error: Some("platform cannot be empty".to_string()),
+            queue_length: state.safe_mode_rate_limiter.queue_len(),
+            next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+        });
+    }
+
+    log::info!(
+        "[SAFE_MODE_CHANNEL] Creating safe mode channel '{}' (type: {}) for user {} on {}, queue_len: {}",
+        body.name,
+        body.channel_type,
+        body.user_id,
+        body.platform,
+        state.safe_mode_rate_limiter.queue_len()
+    );
+
+    // Use the rate limiter to create the channel (may queue if rate limited)
+    match state.safe_mode_rate_limiter.create_safe_mode_channel(
+        &body.channel_type,
+        &body.name,
+        &body.bot_token,
+        body.app_token.as_deref(),
+        &body.user_id,
+        &body.platform,
+    ).await {
+        Ok(channel) => {
+            log::info!(
+                "[SAFE_MODE_CHANNEL] Successfully created safe mode channel '{}' (id: {}) for user {} on {}",
+                channel.name,
+                channel.id,
+                body.user_id,
+                body.platform
+            );
+            HttpResponse::Created().json(SafeModeChannelResponse {
+                success: true,
+                channel: Some(channel.into()),
+                error: None,
+                queue_length: state.safe_mode_rate_limiter.queue_len(),
+                next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+            })
+        }
+        Err(e) => {
+            log::warn!("[SAFE_MODE_CHANNEL] Failed to create safe mode channel: {}", e);
+
+            // Check for queue full or rate limit error
+            if e.contains("queue full") || e.contains("Rate limit exceeded") {
+                return HttpResponse::TooManyRequests().json(SafeModeChannelResponse {
+                    success: false,
+                    channel: None,
+                    error: Some(e),
+                    queue_length: state.safe_mode_rate_limiter.queue_len(),
+                    next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+                });
+            }
+
+            HttpResponse::BadRequest().json(SafeModeChannelResponse {
+                success: false,
+                channel: None,
+                error: Some(e),
+                queue_length: state.safe_mode_rate_limiter.queue_len(),
+                next_slot_ms: state.safe_mode_rate_limiter.time_until_available_ms(),
+            })
+        }
+    }
+}
+
+/// Get rate limiter status for safe mode channels
+async fn safe_mode_rate_limit_status(
+    state: web::Data<AppState>,
+    req: HttpRequest,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&state, &req) {
+        return resp;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "queue_length": state.safe_mode_rate_limiter.queue_len(),
+        "next_slot_ms": state.safe_mode_rate_limiter.time_until_available_ms(),
+        "is_processing": state.safe_mode_rate_limiter.is_processing(),
+    }))
 }
 
 async fn update_channel(

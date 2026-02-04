@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Save, Bot, Server } from 'lucide-react';
+import { Save, Bot, Server, Shield } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -22,6 +22,7 @@ export default function BotSettings() {
   const [customRpcPolygon, setCustomRpcPolygon] = useState('');
   const [rpcProviders, setRpcProviders] = useState<RpcProvider[]>([]);
   const [rogueModeEnabled, setRogueModeEnabled] = useState(false);
+  const [safeModeMaxQueries, setSafeModeMaxQueries] = useState(5);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -39,6 +40,7 @@ export default function BotSettings() {
       setBotEmail(data.bot_email);
       setRpcProvider(data.rpc_provider || 'defirelay');
       setRogueModeEnabled(data.rogue_mode_enabled || false);
+      setSafeModeMaxQueries(data.safe_mode_max_queries_per_10min || 5);
       if (data.custom_rpc_endpoints) {
         setCustomRpcBase(data.custom_rpc_endpoints.base || '');
         setCustomRpcMainnet(data.custom_rpc_endpoints.mainnet || '');
@@ -77,6 +79,7 @@ export default function BotSettings() {
         bot_email: botEmail,
         rpc_provider: rpcProvider,
         custom_rpc_endpoints: customEndpoints,
+        safe_mode_max_queries_per_10min: safeModeMaxQueries,
       });
       setSettings(updated);
       setMessage({ type: 'success', text: 'Settings saved successfully' });
@@ -199,6 +202,30 @@ export default function BotSettings() {
                 />
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Safe Mode Rate Limiting Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-stark-400" />
+              Safe Mode Rate Limiting
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              label="Max Queries per User (per 10 minutes)"
+              type="number"
+              min={1}
+              max={100}
+              value={safeModeMaxQueries}
+              onChange={(e) => setSafeModeMaxQueries(parseInt(e.target.value) || 5)}
+            />
+            <p className="text-xs text-slate-500 -mt-2">
+              Maximum number of safe mode queries each user can make within a 10-minute window.
+              Applies to non-admin users on Discord, Twitter mentions, etc.
+            </p>
           </CardContent>
         </Card>
 

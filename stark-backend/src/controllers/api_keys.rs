@@ -346,6 +346,8 @@ pub struct BackupResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_heartbeat: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_soul: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -378,6 +380,8 @@ pub struct PreviewKeysResponse {
     pub has_settings: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_heartbeat: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_soul: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_version: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -615,6 +619,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Burner wallet not configured".to_string()),
             });
@@ -635,6 +640,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Failed to derive wallet address".to_string()),
             });
@@ -659,6 +665,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Failed to export API keys".to_string()),
             });
@@ -824,6 +831,18 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     }
 
+    // Get soul document content
+    let soul_path = crate::config::soul_document_path();
+    match std::fs::read_to_string(&soul_path) {
+        Ok(content) => {
+            backup.soul_document = Some(content);
+            log::info!("Including soul document in backup");
+        }
+        Err(e) => {
+            log::debug!("Soul document not found for backup: {}", e);
+        }
+    }
+
     // Check if there's anything to backup
     if backup.api_keys.is_empty() && backup.mind_map_nodes.is_empty() && backup.cron_jobs.is_empty() && backup.bot_settings.is_none() && backup.heartbeat_config.is_none() && backup.channel_settings.is_empty() && backup.channels.is_empty() {
         return HttpResponse::BadRequest().json(BackupResponse {
@@ -836,6 +855,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
             channel_setting_count: None,
             has_settings: None,
             has_heartbeat: None,
+            has_soul: None,
             message: None,
             error: Some("No data to backup".to_string()),
         });
@@ -867,6 +887,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Failed to serialize backup".to_string()),
             });
@@ -888,6 +909,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Failed to encrypt backup".to_string()),
             });
@@ -902,6 +924,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 log::warn!("Failed to record backup: {}", e);
             }
 
+            let has_soul = backup.soul_document.is_some();
             HttpResponse::Ok().json(BackupResponse {
                 success: true,
                 key_count: Some(key_count),
@@ -912,8 +935,9 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: Some(channel_setting_count),
                 has_settings: Some(has_settings),
                 has_heartbeat: Some(has_heartbeat),
+                has_soul: Some(has_soul),
                 message: Some(format!(
-                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings{}{})",
+                    "Backed up {} items ({} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings{}{}{})",
                     item_count,
                     key_count,
                     node_count,
@@ -922,7 +946,8 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                     channel_count,
                     channel_setting_count,
                     if has_settings { ", settings" } else { "" },
-                    if has_heartbeat { ", heartbeat" } else { "" }
+                    if has_heartbeat { ", heartbeat" } else { "" },
+                    if has_soul { ", soul" } else { "" }
                 )),
                 error: None,
             })
@@ -939,6 +964,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: resp.error.or(Some("Failed to upload to keystore".to_string())),
             })
@@ -955,6 +981,7 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
             })
@@ -982,6 +1009,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Burner wallet not configured".to_string()),
             });
@@ -1003,6 +1031,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
             });
@@ -1022,6 +1051,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some(error),
             });
@@ -1036,6 +1066,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: None,
             has_settings: None,
             has_heartbeat: None,
+            has_soul: None,
             message: None,
             error: Some(error),
         });
@@ -1054,6 +1085,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("No encrypted data in response".to_string()),
             });
@@ -1075,6 +1107,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 message: None,
                 error: Some("Failed to decrypt backup (wrong wallet?)".to_string()),
             });
@@ -1100,6 +1133,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                         channel_setting_count: None,
                         has_settings: None,
                         has_heartbeat: None,
+                        has_soul: None,
                         message: None,
                         error: Some("Invalid backup data format".to_string()),
                     });
@@ -1255,59 +1289,7 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
-    // Restore cron jobs (already cleared above)
-    let mut restored_cron_jobs = 0;
-    for job in &backup_data.cron_jobs {
-        match state.db.create_cron_job(
-            &job.name,
-            job.description.as_deref(),
-            &job.schedule_type,
-            &job.schedule_value,
-            job.timezone.as_deref(),
-            &job.session_mode,
-            job.message.as_deref(),
-            job.system_event.as_deref(),
-            job.channel_id,
-            job.deliver_to.as_deref(),
-            job.deliver,
-            job.model_override.as_deref(),
-            job.thinking_level.as_deref(),
-            job.timeout_seconds,
-            job.delete_after_run,
-        ) {
-            Ok(_) => restored_cron_jobs += 1,
-            Err(e) => {
-                log::warn!("Failed to restore cron job {}: {}", job.name, e);
-            }
-        }
-    }
-
-    // Restore heartbeat config if present
-    let has_heartbeat = backup_data.heartbeat_config.is_some();
-    if let Some(hb_config) = &backup_data.heartbeat_config {
-        // Get or create the heartbeat config for the channel
-        match state.db.get_or_create_heartbeat_config(hb_config.channel_id) {
-            Ok(existing) => {
-                // Update with restored values
-                if let Err(e) = state.db.update_heartbeat_config(
-                    existing.id,
-                    Some(hb_config.interval_minutes),
-                    Some(&hb_config.target),
-                    hb_config.active_hours_start.as_deref(),
-                    hb_config.active_hours_end.as_deref(),
-                    hb_config.active_days.as_deref(),
-                    Some(hb_config.enabled),
-                ) {
-                    log::warn!("Failed to restore heartbeat config: {}", e);
-                }
-            }
-            Err(e) => {
-                log::warn!("Failed to create heartbeat config for restore: {}", e);
-            }
-        }
-    }
-
-    // Restore channels first (we need ID mapping for channel settings)
+    // Restore channels FIRST (we need ID mapping for cron jobs, heartbeat, and channel settings)
     let mut old_channel_to_new_id: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     let mut restored_channels = 0;
     for channel in &backup_data.channels {
@@ -1354,6 +1336,110 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         }
     }
 
+    // Restore cron jobs (with mapped channel IDs)
+    let mut restored_cron_jobs = 0;
+    for job in &backup_data.cron_jobs {
+        // Map old channel_id to new channel_id
+        let mapped_channel_id = job.channel_id.and_then(|old_id| old_channel_to_new_id.get(&old_id).copied());
+        match state.db.create_cron_job(
+            &job.name,
+            job.description.as_deref(),
+            &job.schedule_type,
+            &job.schedule_value,
+            job.timezone.as_deref(),
+            &job.session_mode,
+            job.message.as_deref(),
+            job.system_event.as_deref(),
+            mapped_channel_id,
+            job.deliver_to.as_deref(),
+            job.deliver,
+            job.model_override.as_deref(),
+            job.thinking_level.as_deref(),
+            job.timeout_seconds,
+            job.delete_after_run,
+        ) {
+            Ok(_) => restored_cron_jobs += 1,
+            Err(e) => {
+                log::warn!("Failed to restore cron job {}: {}", job.name, e);
+            }
+        }
+    }
+
+    // Restore heartbeat config if present (with mapped channel ID)
+    let has_heartbeat = backup_data.heartbeat_config.is_some();
+    if let Some(hb_config) = &backup_data.heartbeat_config {
+        // Map old channel_id to new channel_id
+        let mapped_channel_id = hb_config.channel_id.and_then(|old_id| old_channel_to_new_id.get(&old_id).copied());
+        match state.db.get_or_create_heartbeat_config(mapped_channel_id) {
+            Ok(existing) => {
+                // Update with restored values
+                if let Err(e) = state.db.update_heartbeat_config(
+                    existing.id,
+                    Some(hb_config.interval_minutes),
+                    Some(&hb_config.target),
+                    hb_config.active_hours_start.as_deref(),
+                    hb_config.active_hours_end.as_deref(),
+                    hb_config.active_days.as_deref(),
+                    Some(hb_config.enabled),
+                ) {
+                    log::warn!("Failed to restore heartbeat config: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to create heartbeat config for restore: {}", e);
+            }
+        }
+    }
+
+    // Restore soul document if present
+    let mut has_soul = false;
+    if let Some(soul_content) = &backup_data.soul_document {
+        let soul_path = crate::config::soul_document_path();
+        // Ensure soul directory exists
+        if let Some(parent) = soul_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::write(&soul_path, soul_content) {
+            Ok(_) => {
+                has_soul = true;
+                log::info!("[Keystore] Restored soul document");
+            }
+            Err(e) => {
+                log::warn!("[Keystore] Failed to restore soul document: {}", e);
+            }
+        }
+    }
+
+    // Auto-start channels with auto_start_on_boot setting enabled
+    let mut auto_started_channels = 0;
+    for (old_id, new_id) in &old_channel_to_new_id {
+        // Check if this channel has auto_start_on_boot enabled
+        let should_auto_start = state.db
+            .get_channel_setting(*new_id, "auto_start_on_boot")
+            .ok()
+            .flatten()
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        if should_auto_start {
+            // Get the channel and start it
+            if let Ok(Some(channel)) = state.db.get_channel(*new_id) {
+                match state.channel_manager.start_channel(channel).await {
+                    Ok(_) => {
+                        auto_started_channels += 1;
+                        log::info!("Auto-started channel {} (old_id={})", new_id, old_id);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to auto-start channel {}: {}", new_id, e);
+                    }
+                }
+            }
+        }
+    }
+    if auto_started_channels > 0 {
+        log::info!("Auto-started {} channels after restore", auto_started_channels);
+    }
+
     // Record retrieval in local state
     if let Some(wallet_address) = get_wallet_address(&private_key) {
         let _ = state.db.record_keystore_retrieval(&wallet_address);
@@ -1369,8 +1455,9 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         channel_setting_count: Some(restored_channel_settings),
         has_settings: Some(has_settings),
         has_heartbeat: Some(has_heartbeat),
+        has_soul: Some(has_soul),
         message: Some(format!(
-            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings{}{}",
+            "Restored {} keys, {} nodes, {} connections, {} cron jobs, {} channels, {} channel settings{}{}{}",
             restored_keys,
             restored_nodes,
             restored_connections,
@@ -1378,7 +1465,8 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
             restored_channels,
             restored_channel_settings,
             if has_settings { ", settings" } else { "" },
-            if has_heartbeat { ", heartbeat" } else { "" }
+            if has_heartbeat { ", heartbeat" } else { "" },
+            if has_soul { ", soul" } else { "" }
         )),
         error: None,
     })
@@ -1456,6 +1544,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some("Burner wallet not configured".to_string()),
@@ -1479,6 +1568,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some(format!("Keystore error: {}", e)),
@@ -1500,6 +1590,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some(error),
@@ -1516,6 +1607,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: None,
             has_settings: None,
             has_heartbeat: None,
+            has_soul: None,
             backup_version: None,
             message: None,
             error: Some(error),
@@ -1536,6 +1628,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some("No encrypted data in response".to_string()),
@@ -1559,6 +1652,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some("Failed to decrypt backup (wrong wallet?)".to_string()),
@@ -1595,6 +1689,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
             channel_setting_count: Some(backup_data.channel_settings.len()),
             has_settings: Some(backup_data.bot_settings.is_some()),
             has_heartbeat: Some(backup_data.heartbeat_config.is_some()),
+            has_soul: Some(backup_data.soul_document.is_some()),
             backup_version: Some(backup_data.version),
             message: Some("Cloud backup retrieved successfully".to_string()),
             error: None,
@@ -1617,6 +1712,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 channel_setting_count: None,
                 has_settings: None,
                 has_heartbeat: None,
+                has_soul: None,
                 backup_version: None,
                 message: None,
                 error: Some("Invalid backup data format".to_string()),
@@ -1645,6 +1741,7 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
         channel_setting_count: None,
         has_settings: None,
         has_heartbeat: None,
+        has_soul: None,
         backup_version: None,
         message: Some("Cloud keys retrieved successfully (legacy format)".to_string()),
         error: None,

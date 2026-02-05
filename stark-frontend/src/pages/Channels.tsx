@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Hash, Plus, Play, Square, Trash2, Save, Settings } from 'lucide-react';
+import { MessageSquare, Hash, Plus, Play, Square, Trash2, Save, Pencil } from 'lucide-react';
 import Card, { CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -51,33 +51,6 @@ const emptyForm: ChannelFormData = {
   app_token: '',
   settings: {},
 };
-
-// Settings toggle with gear icon - now opens edit modal
-function SettingsToggle({
-  enabled,
-  onToggle,
-}: {
-  enabled: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-        enabled ? 'bg-stark-500' : 'bg-slate-600'
-      }`}
-      title={enabled ? 'Close settings' : 'Edit channel settings'}
-    >
-      <span
-        className={`inline-flex h-5 w-5 items-center justify-center rounded-full bg-white transition-transform ${
-          enabled ? 'translate-x-5' : 'translate-x-0.5'
-        }`}
-      >
-        <Settings className="h-3 w-3 text-slate-600" />
-      </span>
-    </button>
-  );
-}
 
 export default function Channels() {
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
@@ -420,10 +393,6 @@ export default function Channels() {
                       }`}>
                         {channel.running ? 'Running' : 'Stopped'}
                       </span>
-                      <SettingsToggle
-                        enabled={isEditing}
-                        onToggle={() => toggleEditMode(channel)}
-                      />
                       {channel.running ? (
                         <Button
                           variant="secondary"
@@ -493,21 +462,56 @@ export default function Channels() {
                               </div>
                               {editSchema.map((setting) => (
                                 <div key={setting.key}>
-                                  <Input
-                                    label={setting.label}
-                                    value={editForm.settings[setting.key] || ''}
-                                    onChange={(e) =>
-                                      setEditForm({
-                                        ...editForm,
-                                        settings: {
-                                          ...editForm.settings,
-                                          [setting.key]: e.target.value,
-                                        },
-                                      })
-                                    }
-                                    placeholder={setting.placeholder}
-                                  />
-                                  <p className="mt-1 text-xs text-slate-500">{setting.description}</p>
+                                  {setting.input_type === 'toggle' ? (
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <label className="block text-sm font-medium text-slate-300">
+                                          {setting.label}
+                                        </label>
+                                        <p className="mt-1 text-xs text-slate-500">{setting.description}</p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setEditForm({
+                                            ...editForm,
+                                            settings: {
+                                              ...editForm.settings,
+                                              [setting.key]: editForm.settings[setting.key] === 'true' ? 'false' : 'true',
+                                            },
+                                          })
+                                        }
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                          editForm.settings[setting.key] === 'true' ? 'bg-stark-500' : 'bg-slate-600'
+                                        }`}
+                                      >
+                                        <span
+                                          className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                                            editForm.settings[setting.key] === 'true' ? 'translate-x-6' : 'translate-x-1'
+                                          }`}
+                                        />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <Input
+                                        label={setting.label}
+                                        value={editForm.settings[setting.key] || ''}
+                                        onChange={(e) =>
+                                          setEditForm({
+                                            ...editForm,
+                                            settings: {
+                                              ...editForm.settings,
+                                              [setting.key]: e.target.value,
+                                            },
+                                          })
+                                        }
+                                        placeholder={setting.placeholder}
+                                        type={setting.input_type === 'number' ? 'number' : 'text'}
+                                      />
+                                      <p className="mt-1 text-xs text-slate-500">{setting.description}</p>
+                                    </>
+                                  )}
                                 </div>
                               ))}
                             </>
@@ -552,6 +556,16 @@ export default function Channels() {
                           </code>
                         </div>
                       )}
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => toggleEditMode(channel)}
+                        >
+                          <Pencil className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>

@@ -67,10 +67,8 @@ pub struct AppState {
 /// 2. Local database appears fresh (no API keys, no mind nodes beyond trunk)
 ///
 /// Retry logic: 3 attempts with exponential backoff (2s, 4s, 8s)
-fn spawn_auto_retrieve_from_keystore(db: std::sync::Arc<db::Database>, private_key: String) {
-    tokio::spawn(async move {
-        auto_retrieve_from_keystore_with_retry(&db, &private_key).await;
-    });
+async fn auto_retrieve_from_keystore(db: &std::sync::Arc<db::Database>, private_key: &str) {
+    auto_retrieve_from_keystore_with_retry(db, private_key).await;
 }
 
 async fn auto_retrieve_from_keystore_with_retry(db: &std::sync::Arc<db::Database>, private_key: &str) {
@@ -160,9 +158,21 @@ async fn auto_retrieve_from_keystore_with_retry(db: &std::sync::Arc<db::Database
                                 );
                             }
                         }
+                        let _ = db.mark_keystore_auto_retrieved(&wallet_address);
+                        return;
+                    } else {
+                        // Server returned success but no data - treat as no backup
+                        log::info!("[Keystore] Server returned success but no backup data");
+                        let _ = db.mark_keystore_auto_retrieved(&wallet_address);
+                        let _ = db.record_auto_sync_result(
+                            &wallet_address,
+                            "no_backup",
+                            "Server returned success but no backup data was found.",
+                            None,
+                            None,
+                        );
+                        return;
                     }
-                    let _ = db.mark_keystore_auto_retrieved(&wallet_address);
-                    return;
                 } else if let Some(error) = &resp.error {
                     if error.contains("No backup found") {
                         log::info!("[Keystore] No cloud backup found - starting fresh");
@@ -326,6 +336,135 @@ async fn restore_backup_data(
         }
     }
 
+    // Restore channels FIRST (with bot tokens) - need ID mapping for cron jobs, heartbeat, and channel settings
+    let mut old_channel_to_new_id: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+    let mut restored_channels = 0;
+    for channel in &backup_data.channels {
+        match db.create_channel(&channel.channel_type, &channel.name, &channel.bot_token, channel.app_token.as_deref()) {
+            Ok(new_channel) => {
+                old_channel_to_new_id.insert(channel.id, new_channel.id);
+                restored_channels += 1;
+            }
+            Err(e) => {
+                // Channel might already exist with same name/token - try to find it
+                if let Ok(existing) = db.list_enabled_channels() {
+                    if let Some(found) = existing.iter().find(|c| c.name == channel.name && c.channel_type == channel.channel_type) {
+                        old_channel_to_new_id.insert(channel.id, found.id);
+                        log::debug!("[Keystore] Channel {} already exists, mapping to existing", channel.name);
+                    } else {
+                        log::warn!("[Keystore] Failed to restore channel {}: {}", channel.name, e);
+                    }
+                }
+            }
+        }
+    }
+    if restored_channels > 0 {
+        log::info!("[Keystore] Restored {} channels", restored_channels);
+    }
+
+    // Restore channel settings using channel ID mapping
+    let mut restored_channel_settings = 0;
+    for setting in &backup_data.channel_settings {
+        if let Some(&new_channel_id) = old_channel_to_new_id.get(&setting.channel_id) {
+            match db.set_channel_setting(new_channel_id, &setting.setting_key, &setting.setting_value) {
+                Ok(_) => restored_channel_settings += 1,
+                Err(e) => log::warn!("[Keystore] Failed to restore channel setting: {}", e),
+            }
+        }
+    }
+    if restored_channel_settings > 0 {
+        log::info!("[Keystore] Restored {} channel settings", restored_channel_settings);
+    }
+
+    // Enable channels that have auto_start_on_boot=true (so gateway.start_enabled_channels() will start them)
+    let mut auto_enabled_channels = 0;
+    for &new_channel_id in old_channel_to_new_id.values() {
+        let should_auto_start = db
+            .get_channel_setting(new_channel_id, "auto_start_on_boot")
+            .ok()
+            .flatten()
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        if should_auto_start {
+            if let Err(e) = db.set_channel_enabled(new_channel_id, true) {
+                log::warn!("[Keystore] Failed to enable auto-start channel {}: {}", new_channel_id, e);
+            } else {
+                auto_enabled_channels += 1;
+            }
+        }
+    }
+    if auto_enabled_channels > 0 {
+        log::info!("[Keystore] Enabled {} channels with auto_start_on_boot", auto_enabled_channels);
+    }
+
+    // Restore cron jobs (with mapped channel IDs)
+    let mut restored_cron_jobs = 0;
+    for job in &backup_data.cron_jobs {
+        // Map old channel_id to new channel_id
+        let mapped_channel_id = job.channel_id.and_then(|old_id| old_channel_to_new_id.get(&old_id).copied());
+        match db.create_cron_job(
+            &job.name,
+            job.description.as_deref(),
+            &job.schedule_type,
+            &job.schedule_value,
+            job.timezone.as_deref(),
+            &job.session_mode,
+            job.message.as_deref(),
+            job.system_event.as_deref(),
+            mapped_channel_id,
+            job.deliver_to.as_deref(),
+            job.deliver,
+            job.model_override.as_deref(),
+            job.thinking_level.as_deref(),
+            job.timeout_seconds,
+            job.delete_after_run,
+        ) {
+            Ok(_) => restored_cron_jobs += 1,
+            Err(e) => log::warn!("[Keystore] Failed to restore cron job {}: {}", job.name, e),
+        }
+    }
+    if restored_cron_jobs > 0 {
+        log::info!("[Keystore] Restored {} cron jobs", restored_cron_jobs);
+    }
+
+    // Restore heartbeat config if present (with mapped channel ID)
+    if let Some(hb_config) = &backup_data.heartbeat_config {
+        // Map old channel_id to new channel_id
+        let mapped_channel_id = hb_config.channel_id.and_then(|old_id| old_channel_to_new_id.get(&old_id).copied());
+        match db.get_or_create_heartbeat_config(mapped_channel_id) {
+            Ok(existing) => {
+                if let Err(e) = db.update_heartbeat_config(
+                    existing.id,
+                    Some(hb_config.interval_minutes),
+                    Some(&hb_config.target),
+                    hb_config.active_hours_start.as_deref(),
+                    hb_config.active_hours_end.as_deref(),
+                    hb_config.active_days.as_deref(),
+                    Some(hb_config.enabled),
+                ) {
+                    log::warn!("[Keystore] Failed to restore heartbeat config: {}", e);
+                } else {
+                    log::info!("[Keystore] Restored heartbeat config (enabled={})", hb_config.enabled);
+                }
+            }
+            Err(e) => log::warn!("[Keystore] Failed to create heartbeat config for restore: {}", e),
+        }
+    }
+
+    // Restore soul document if present
+    if let Some(soul_content) = &backup_data.soul_document {
+        let soul_path = config::soul_document_path();
+        // Ensure soul directory exists
+        if let Some(parent) = soul_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match std::fs::write(&soul_path, soul_content) {
+            Ok(_) => log::info!("[Keystore] Restored soul document"),
+            Err(e) => log::warn!("[Keystore] Failed to restore soul document: {}", e),
+        }
+    }
+
     log::info!("[Keystore] Restore complete");
     Ok((restored_keys, restored_nodes))
 }
@@ -377,20 +516,20 @@ async fn main() -> std::io::Result<()> {
     let db = Database::new(&config.database_url).expect("Failed to initialize database");
     let db = Arc::new(db);
 
-    // Initialize keystore URL from bot_settings (must be before auto-retrieve)
-    if let Ok(settings) = db.get_bot_settings() {
-        if let Some(ref url) = settings.keystore_url {
-            if !url.is_empty() {
-                log::info!("Using custom keystore URL: {}", url);
-                keystore_client::KEYSTORE_CLIENT.set_base_url(url).await;
-            }
-        }
+    // Initialize keystore URL (must be before auto-retrieve)
+    // Priority: 1. bot_settings.keystore_url, 2. KEYSTORE_URL env var, 3. default
+    let env_keystore_url = std::env::var("KEYSTORE_URL").ok().filter(|s| !s.is_empty());
+    let db_keystore_url = db.get_bot_settings().ok().and_then(|s| s.keystore_url).filter(|s| !s.is_empty());
+
+    if let Some(url) = db_keystore_url.or(env_keystore_url) {
+        log::info!("Using custom keystore URL: {}", url);
+        keystore_client::KEYSTORE_CLIENT.set_base_url(&url).await;
     }
 
-    // Spawn keystore auto-retrieval in background (restore state from cloud backup on fresh instance)
-    // Runs async with retry to not block server startup
+    // Auto-retrieve from keystore (restore state from cloud backup on fresh instance)
+    // This runs before channel auto-start so restored channels can start
     if let Some(ref private_key) = config.burner_wallet_private_key {
-        spawn_auto_retrieve_from_keystore(db.clone(), private_key.clone());
+        auto_retrieve_from_keystore(&db, private_key).await;
     }
 
     // Initialize Tool Registry with built-in tools

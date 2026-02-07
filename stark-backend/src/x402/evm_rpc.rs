@@ -63,6 +63,17 @@ pub struct TransactionReceipt {
     pub status: Option<U64>,
     pub gas_used: Option<U256>,
     pub effective_gas_price: Option<U256>,
+    #[serde(default)]
+    pub logs: Vec<TxLog>,
+}
+
+/// A single log entry from a transaction receipt
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TxLog {
+    pub address: Address,
+    pub topics: Vec<H256>,
+    pub data: Bytes,
 }
 
 impl X402EvmRpc {

@@ -1475,7 +1475,8 @@ impl MessageDispatcher {
                         system_msg.content = planner_prompt;
                     }
                 }
-                crate::ai::multi_agent::tools::get_planner_tools()
+                // Filter to only define_tasks from the registry tools
+                tools.iter().filter(|t| t.name == "define_tasks").cloned().collect()
             } else {
                 tools.clone()
             };
@@ -2020,7 +2021,7 @@ impl MessageDispatcher {
                         } else {
                             // Check if subtype is None - only allow set_agent_subtype in that case
                             let current_subtype = orchestrator.current_subtype();
-                            if !current_subtype.is_selected() && call.name != "set_agent_subtype" {
+                            if !current_subtype.is_selected() && call.name != "set_agent_subtype" && call.name != "define_tasks" {
                                 log::warn!(
                                     "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
                                     call.name
@@ -2165,6 +2166,37 @@ impl MessageDispatcher {
                                         session_id,
                                         orchestrator,
                                     );
+                                }
+                            }
+                            // Check if define_tasks was called - agent wants to replace the task queue
+                            if metadata.get("define_tasks").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if let Some(tasks) = metadata.get("tasks").and_then(|v| v.as_array()) {
+                                    let task_descriptions: Vec<String> = tasks
+                                        .iter()
+                                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                        .collect();
+                                    if !task_descriptions.is_empty() {
+                                        log::info!(
+                                            "[ORCHESTRATED_LOOP] define_tasks: replacing queue with {} tasks",
+                                            task_descriptions.len()
+                                        );
+                                        let ctx = orchestrator.context_mut();
+                                        ctx.task_queue =
+                                            crate::ai::multi_agent::types::TaskQueue::from_descriptions(task_descriptions);
+                                        ctx.planner_completed = true;
+                                        ctx.mode = AgentMode::Assistant;
+                                        // Pop the first task and start it
+                                        self.advance_to_next_task_or_complete(
+                                            original_message.channel_id,
+                                            session_id,
+                                            orchestrator,
+                                        );
+                                        self.broadcast_task_queue_update(
+                                            original_message.channel_id,
+                                            session_id,
+                                            orchestrator,
+                                        );
+                                    }
                                 }
                             }
                             // Check if task_fully_completed was called - agent signals current task is done
@@ -2724,7 +2756,7 @@ impl MessageDispatcher {
                                 } else {
                                     // Check if subtype is None - only allow set_agent_subtype in that case
                                     let current_subtype = orchestrator.current_subtype();
-                                    if !current_subtype.is_selected() && tool_call.tool_name != "set_agent_subtype" {
+                                    if !current_subtype.is_selected() && tool_call.tool_name != "set_agent_subtype" && tool_call.tool_name != "define_tasks" {
                                         log::warn!(
                                             "[SUBTYPE] Blocked tool '{}' - no subtype selected. Must call set_agent_subtype first.",
                                             tool_call.tool_name
@@ -2855,6 +2887,36 @@ impl MessageDispatcher {
                                                 session_id,
                                                 orchestrator,
                                             );
+                                        }
+                                    }
+                                    // Check if define_tasks was called - agent wants to replace the task queue
+                                    if metadata.get("define_tasks").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                        if let Some(tasks) = metadata.get("tasks").and_then(|v| v.as_array()) {
+                                            let task_descriptions: Vec<String> = tasks
+                                                .iter()
+                                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                                .collect();
+                                            if !task_descriptions.is_empty() {
+                                                log::info!(
+                                                    "[TEXT_ORCHESTRATED] define_tasks: replacing queue with {} tasks",
+                                                    task_descriptions.len()
+                                                );
+                                                let ctx = orchestrator.context_mut();
+                                                ctx.task_queue =
+                                                    crate::ai::multi_agent::types::TaskQueue::from_descriptions(task_descriptions);
+                                                ctx.planner_completed = true;
+                                                ctx.mode = AgentMode::Assistant;
+                                                self.advance_to_next_task_or_complete(
+                                                    original_message.channel_id,
+                                                    session_id,
+                                                    orchestrator,
+                                                );
+                                                self.broadcast_task_queue_update(
+                                                    original_message.channel_id,
+                                                    session_id,
+                                                    orchestrator,
+                                                );
+                                            }
                                         }
                                     }
                                     // Check if task_fully_completed was called - agent signals it's done

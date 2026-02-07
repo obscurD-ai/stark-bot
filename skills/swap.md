@@ -1,25 +1,34 @@
 ---
 name: swap
 description: "Swap ERC20 tokens on Base using 0x DEX aggregator via quoter.defirelay.com"
-version: 7.2.0
+version: 8.0.0
 author: starkbot
 homepage: https://0x.org
 metadata: {"requires_auth": false, "clawdbot":{"emoji":"🔄"}}
 tags: [crypto, defi, swap, dex, base, trading, 0x]
-requires_tools: [token_lookup, to_raw_amount, decode_calldata, web3_preset_function_call, x402_fetch, x402_rpc, list_queued_web3_tx, broadcast_web3_tx, select_web3_network, add_task]
+requires_tools: [token_lookup, to_raw_amount, decode_calldata, web3_preset_function_call, x402_fetch, x402_rpc, list_queued_web3_tx, broadcast_web3_tx, verify_tx_broadcast, select_web3_network, define_tasks]
 ---
 
 # Token Swap Skill
 
-This skill has TWO phases, split into separate tasks so nothing gets skipped.
+When this skill is invoked, **immediately define all tasks upfront**, then mark this task complete. Do NOT start executing swap logic in this task — just plan.
 
-**Phase 1 (this task):** Look up tokens, check allowance, split remaining work into tasks.
-**Phase 2 (next task, if needed):** Approve sell token for Permit2.
-**Phase 3 (next task):** Execute the actual swap.
+## Step 1: Define tasks
+
+Call `define_tasks` with all 4 tasks in order:
+
+```json
+{"tool": "define_tasks", "tasks": [
+  "SWAP TASK 1/4 — Prepare: select network, look up sell and buy tokens, check balances, check Permit2 allowance. Report what you found. See swap skill 'Task 1' instructions.",
+  "SWAP TASK 2/4 — Approve sell token for Permit2 (SKIP if allowance was sufficient in Task 1): call erc20_approve_permit2 preset, broadcast, wait for confirmation. See swap skill 'Task 2' instructions.",
+  "SWAP TASK 3/4 — Get swap quote: convert sell amount to wei with to_raw_amount, fetch quote with x402_fetch swap_quote preset, decode calldata with decode_calldata using cache_as 'swap'. See swap skill 'Task 3' instructions.",
+  "SWAP TASK 4/4 — Execute swap: call swap_execute preset, broadcast the transaction, then call verify_tx_broadcast and ONLY report success if VERIFIED or CONFIRMED. See swap skill 'Task 4' instructions."
+]}
+```
 
 ---
 
-## Phase 1: Prepare tokens and plan tasks
+## Task 1: Prepare — look up tokens, check balances, check allowance
 
 ### 1a. Select network (if user specified one)
 
@@ -54,36 +63,25 @@ This skill has TWO phases, split into separate tasks so nothing gets skipped.
 {"tool": "web3_preset_function_call", "preset": "erc20_allowance_permit2", "network": "<network>", "call_only": true}
 ```
 
-### 1e. Create tasks and finish Phase 1
+### 1e. Report findings and complete
 
-Now split the remaining work into separate tasks. The order you call `add_task` matters — **add the swap task first, then add the approval task** (which pushes it to the front, before the swap).
-
-**If allowance is 0 or less than sell amount (approval needed):**
+Tell the user what you found (token addresses, balances, whether approval is needed). Then:
 
 ```json
-{"tool": "add_task", "description": "Execute swap: fetch quote, decode with cache_as swap, call swap_execute preset, broadcast, and verify the swap transaction is CONFIRMED before reporting success. Use the swap skill Phase 3 instructions.", "position": "front"}
-```
-```json
-{"tool": "add_task", "description": "Approve sell token for Permit2: call erc20_approve_permit2 preset, broadcast and wait for confirmation. This is ONLY the approval — the swap is a separate task.", "position": "front"}
-```
-```json
-{"tool": "task_fully_completed", "summary": "Token lookups done. Approval needed — created approval and swap tasks."}
-```
-
-**If allowance is sufficient (no approval needed):**
-
-```json
-{"tool": "add_task", "description": "Execute swap: fetch quote, decode with cache_as swap, call swap_execute preset, broadcast, and verify the swap transaction is CONFIRMED before reporting success. Use the swap skill Phase 3 instructions.", "position": "front"}
-```
-```json
-{"tool": "task_fully_completed", "summary": "Token lookups done. Allowance sufficient — created swap task."}
+{"tool": "task_fully_completed", "summary": "Tokens looked up. Allowance: <sufficient/insufficient>. Ready for next step."}
 ```
 
 ---
 
-## Phase 2: Approve sell token (only if approval was needed)
+## Task 2: Approve sell token for Permit2
 
-This task runs only if an approval task was created in Phase 1.
+**If Task 1 determined allowance is already sufficient, SKIP this task:**
+
+```json
+{"tool": "task_fully_completed", "summary": "Allowance already sufficient — skipping approval."}
+```
+
+**Otherwise, approve:**
 
 ```json
 {"tool": "web3_preset_function_call", "preset": "erc20_approve_permit2", "network": "<network>"}
@@ -96,16 +94,14 @@ Broadcast and wait for confirmation:
 
 After the approval is confirmed:
 ```json
-{"tool": "task_fully_completed", "summary": "Sell token approved for Permit2. Ready to execute swap."}
+{"tool": "task_fully_completed", "summary": "Sell token approved for Permit2. Ready for quote."}
 ```
 
 **The approval is NOT the swap. Do NOT report success to the user yet.**
 
 ---
 
-## Phase 3: Execute the swap
-
-This is the actual swap. Follow these steps exactly.
+## Task 3: Get swap quote
 
 ### 3a. Convert sell amount to wei
 
@@ -129,24 +125,40 @@ If this fails after retries, STOP and tell the user.
 {"tool": "decode_calldata", "abi": "0x_settler", "calldata_register": "swap_quote", "cache_as": "swap"}
 ```
 
-### 3d. Execute the swap transaction
+After decoding succeeds:
+```json
+{"tool": "task_fully_completed", "summary": "Quote fetched and decoded. Ready to execute swap."}
+```
+
+---
+
+## Task 4: Execute the swap
+
+### 4a. Execute the swap transaction
 
 ```json
 {"tool": "web3_preset_function_call", "preset": "swap_execute", "network": "<network>"}
 ```
 
-### 3e. Broadcast the swap transaction
+### 4b. Broadcast the swap transaction
 
 ```json
-{"tool": "broadcast_web3_tx", "uuid": "<uuid_from_3d>"}
+{"tool": "broadcast_web3_tx", "uuid": "<uuid_from_4a>"}
 ```
 
-### 3f. VERIFY the result
+### 4c. VERIFY the result
 
-Read the output of `broadcast_web3_tx`:
+Call `verify_tx_broadcast` to poll for the receipt, decode token transfer events, and AI-verify the result matches the user's intent:
 
-- **"TRANSACTION CONFIRMED"** → The swap succeeded. Report success with tx hash and explorer link.
+```json
+{"tool": "verify_tx_broadcast"}
+```
+
+Read the output:
+
+- **"TRANSACTION VERIFIED"** → The swap succeeded AND the AI confirmed it matches the user's intent. Report success with tx hash and explorer link.
+- **"TRANSACTION CONFIRMED — INTENT MISMATCH"** → Confirmed on-chain but AI flagged a concern. Tell the user to check the explorer.
 - **"TRANSACTION REVERTED"** → The swap FAILED. Tell the user. Do NOT call `task_fully_completed`.
-- **"confirmation timeout"** → Tell the user to check the explorer link.
+- **"CONFIRMATION TIMEOUT"** → Tell the user to check the explorer link.
 
-**Only call `task_fully_completed` if the swap broadcast returned CONFIRMED.**
+**Only call `task_fully_completed` if verify_tx_broadcast returned VERIFIED or CONFIRMED.**

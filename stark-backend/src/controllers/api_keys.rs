@@ -42,6 +42,8 @@ pub enum ApiKeyId {
     TwitterAccessToken,
     #[strum(serialize = "TWITTER_ACCESS_TOKEN_SECRET")]
     TwitterAccessTokenSecret,
+    #[strum(serialize = "RAILWAY_API_TOKEN")]
+    RailwayApiToken,
 }
 
 impl ApiKeyId {
@@ -59,6 +61,7 @@ impl ApiKeyId {
             Self::TwitterConsumerSecret => "TWITTER_CONSUMER_SECRET",
             Self::TwitterAccessToken => "TWITTER_ACCESS_TOKEN",
             Self::TwitterAccessTokenSecret => "TWITTER_ACCESS_TOKEN_SECRET",
+            Self::RailwayApiToken => "RAILWAY_API_TOKEN",
         }
     }
 
@@ -75,6 +78,7 @@ impl ApiKeyId {
             Self::TwitterConsumerSecret => Some(&["TWITTER_CONSUMER_SECRET", "TWITTER_API_SECRET"]),
             Self::TwitterAccessToken => Some(&["TWITTER_ACCESS_TOKEN"]),
             Self::TwitterAccessTokenSecret => Some(&["TWITTER_ACCESS_TOKEN_SECRET"]),
+            Self::RailwayApiToken => Some(&["RAILWAY_API_TOKEN"]),
         }
     }
 
@@ -182,6 +186,17 @@ pub fn get_service_configs() -> Vec<ServiceConfig> {
             url: "https://api.x402book.com",
             keys: vec![KeyConfig {
                 name: "X402BOOK_TOKEN",
+                label: "API Token",
+                secret: true,
+            }],
+        },
+        ServiceConfig {
+            group: "railway",
+            label: "Railway",
+            description: "Deploy and manage infrastructure via Railway. Create an API token from your Railway account.",
+            url: "https://railway.com/account/tokens",
+            keys: vec![KeyConfig {
+                name: "RAILWAY_API_TOKEN",
                 label: "API Token",
                 secret: true,
             }],

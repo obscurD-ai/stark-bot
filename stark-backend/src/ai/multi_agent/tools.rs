@@ -51,10 +51,12 @@ pub fn get_planner_tools() -> Vec<ToolDefinition> {
 // =============================================================================
 
 /// Get tools for the specified mode
+/// Note: define_tasks is now a registered tool in the main registry,
+/// so TaskPlanner no longer needs to add it here (that caused duplication errors with Kimi).
 pub fn get_tools_for_mode(mode: super::types::AgentMode) -> Vec<ToolDefinition> {
     match mode {
-        super::types::AgentMode::TaskPlanner => get_planner_tools(),
-        super::types::AgentMode::Assistant => vec![], // No orchestrator-specific tools in assistant mode
+        super::types::AgentMode::TaskPlanner => vec![], // define_tasks is in the registry
+        super::types::AgentMode::Assistant => vec![],
     }
 }
 

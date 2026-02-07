@@ -20,4 +20,4 @@ pub mod erc20;
 pub use types::*;
 pub use client::{X402Client, X402Response, is_x402_endpoint};
 pub use signer::X402Signer;
-pub use evm_rpc::X402EvmRpc;
+pub use evm_rpc::{TxLog, X402EvmRpc};

@@ -6,6 +6,7 @@
 mod bridge_usdc;
 mod broadcast_web3_tx;
 pub mod verify_intent;
+mod verify_tx_broadcast;
 mod decode_calldata;
 mod dexscreener;
 mod list_queued_web3_tx;
@@ -35,6 +36,7 @@ pub use select_web3_network::SelectWeb3NetworkTool;
 pub use to_raw_amount::ToRawAmountTool;
 pub use token_lookup::{load_tokens, TokenLookupTool};
 pub use web3_preset_function_call::Web3PresetFunctionCallTool;
+pub use verify_tx_broadcast::VerifyTxBroadcastTool;
 pub use web3_tx::SendEthTool;
 pub use x402_agent_invoke::X402AgentInvokeTool;
 pub use x402_fetch::X402FetchTool;

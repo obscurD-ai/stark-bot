@@ -27,14 +27,14 @@ pub use bash::{
 };
 pub use code::{CommitterTool, DeployTool, PrQualityTool};
 pub use core::{
-    AddTaskTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, InstallApiKeyTool,
+    AddTaskTool, DefineTasksTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, InstallApiKeyTool,
     ManageSkillsTool, ModifySoulTool, SayToUserTool, SetAgentSubtypeTool, SubagentStatusTool,
     SubagentTool, TaskFullyCompletedTool,
 };
 pub use cryptocurrency::{
     load_networks, load_tokens, BridgeUsdcTool, BroadcastWeb3TxTool, DecodeCalldataTool,
     DexScreenerTool, ListQueuedWeb3TxTool, PolymarketTradeTool, SelectWeb3NetworkTool,
-    SendEthTool, SetAddressTool, ToRawAmountTool, TokenLookupTool,
+    SendEthTool, SetAddressTool, ToRawAmountTool, TokenLookupTool, VerifyTxBroadcastTool,
     Web3PresetFunctionCallTool, X402AgentInvokeTool, X402FetchTool, X402PostTool, X402RpcTool,
 };
 pub use social_media::{DiscordLookupTool, DiscordReadTool, DiscordWriteTool, GithubUserTool, TelegramReadTool, TwitterPostTool};

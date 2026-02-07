@@ -358,7 +358,7 @@ impl AgentSubtype {
                 // Add subtype-specific tags
                 match self {
                     AgentSubtype::Finance => tags.extend(["crypto", "defi", "transfer", "swap", "finance", "wallet", "token"]),
-                    AgentSubtype::CodeEngineer => tags.extend(["development", "git", "testing", "debugging", "review", "code", "github"]),
+                    AgentSubtype::CodeEngineer => tags.extend(["development", "git", "testing", "debugging", "review", "code", "github", "devops", "deployment", "infrastructure"]),
                     AgentSubtype::Secretary => tags.extend(["social", "marketing", "messaging", "moltx", "scheduling", "communication", "social-media"]),
                     AgentSubtype::None => unreachable!(),
                 }

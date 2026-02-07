@@ -32,6 +32,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::ApiKeysCheckTool::new()));
     registry.register(Arc::new(builtin::TaskFullyCompletedTool::new()));
     registry.register(Arc::new(builtin::AddTaskTool::new()));
+    registry.register(Arc::new(builtin::DefineTasksTool::new()));
     registry.register(Arc::new(builtin::ManageSkillsTool::new()));
     registry.register(Arc::new(builtin::InstallApiKeyTool::new()));
 
@@ -52,6 +53,8 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::TokenLookupTool::new()));
     registry.register(Arc::new(builtin::ToRawAmountTool::new()));
     registry.register(Arc::new(builtin::SetAddressTool::new()));
+    // Post-broadcast transaction verification (AI-based)
+    registry.register(Arc::new(builtin::VerifyTxBroadcastTool::new()));
     // Network selection for chain-specific operations
     registry.register(Arc::new(builtin::SelectWeb3NetworkTool::new()));
     // Polymarket prediction market trading

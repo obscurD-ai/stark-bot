@@ -260,10 +260,9 @@ impl Orchestrator {
             tool_name, self.context.mode_iterations
         );
 
-        match tool_name {
-            "define_tasks" => self.handle_define_tasks(params),
-            _ => ProcessResult::Continue,
-        }
+        // define_tasks is now a registered tool handled via metadata interception
+        // in the dispatcher (same pattern as add_task)
+        ProcessResult::Continue
     }
 
     /// Check if we should force completion due to hitting max iterations
@@ -282,49 +281,6 @@ impl Orchestrator {
     }
 
     // =========================================================================
-    // Tool handlers
-    // =========================================================================
-
-    fn handle_define_tasks(&mut self, params: &Value) -> ProcessResult {
-        if let Some(tasks_array) = params.get("tasks").and_then(|v| v.as_array()) {
-            let task_descriptions: Vec<String> = tasks_array
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-
-            if task_descriptions.is_empty() {
-                return ProcessResult::Error("No valid tasks provided".to_string());
-            }
-
-            log::info!(
-                "[ORCHESTRATOR] Task planner defined {} tasks",
-                task_descriptions.len()
-            );
-
-            // Create the task queue
-            self.context.task_queue = TaskQueue::from_descriptions(task_descriptions.clone());
-
-            // Mark planner as completed and switch to assistant mode
-            self.context.planner_completed = true;
-            self.context.mode = AgentMode::Assistant;
-
-            // Format the task list for the response
-            let task_list = task_descriptions
-                .iter()
-                .enumerate()
-                .map(|(i, t)| format!("{}. {}", i + 1, t))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            ProcessResult::ToolResult(format!(
-                "Tasks defined successfully:\n{}\n\nNow executing task 1...",
-                task_list
-            ))
-        } else {
-            ProcessResult::Error("Missing or invalid 'tasks' parameter".to_string())
-        }
-    }
-
     /// Transition to assistant mode after planner completes
     pub fn transition_to_assistant(&mut self) {
         self.context.mode = AgentMode::Assistant;

@@ -18,6 +18,7 @@
 //! }
 //! ```
 
+use super::verify_intent::{self, TransactionIntent};
 use crate::tools::registry::Tool;
 use crate::tools::rpc_config::{resolve_rpc_from_context, ResolvedRpcConfig};
 use crate::tools::types::{
@@ -497,6 +498,27 @@ impl Tool for BridgeUsdcTool {
                 ))
             }
         };
+
+        // Verify intent before any signing/queueing
+        let intent = TransactionIntent {
+            tx_type: "bridge".to_string(),
+            to: swap_tx.to.clone(),
+            value: "0".to_string(),
+            value_display: format!("{} USDC", params.amount),
+            network: Self::chain_to_network(&params.from_chain).to_string(),
+            function_name: None,
+            abi_name: None,
+            preset_name: None,
+            destination_chain: Some(params.to_chain.clone()),
+            calldata: None,
+            description: format!(
+                "Bridge {} USDC from {} to {} via Across Protocol, recipient {}",
+                params.amount, params.from_chain, params.to_chain, recipient,
+            ),
+        };
+        if let Err(reason) = verify_intent::verify_intent(&intent, context, None).await {
+            return ToolResult::error(reason);
+        }
 
         // Check if we're in a gateway channel without rogue mode
         let is_gateway_channel = context

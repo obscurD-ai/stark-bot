@@ -558,6 +558,11 @@ impl MessageDispatcher {
             tool_config = crate::tools::ToolConfig::safe_mode();
         }
 
+        // Twitter has no interactive session — ask_user can never work, so block it.
+        if message.channel_type == "twitter" {
+            tool_config.deny_list.push("ask_user".to_string());
+        }
+
         // Debug: Log tool configuration
         log::info!(
             "[DISPATCH] Tool config - profile: {:?}, allowed_groups: {:?}, safe_mode: {}",
@@ -813,6 +818,12 @@ impl MessageDispatcher {
                 serde_json::json!(bot_settings.rogue_mode_enabled),
             );
         }
+
+        // Store original user message for verify_intent safety checks
+        tool_context.extra.insert(
+            "original_user_message".to_string(),
+            serde_json::json!(message.text.clone()),
+        );
 
         // Generate response with optional tool execution loop
         let final_response = if use_tools {

@@ -5,6 +5,7 @@
 mod agent_send;
 mod api_keys_check;
 mod ask_user;
+mod install_api_key;
 mod manage_skills;
 mod modify_soul;
 mod say_to_user;
@@ -15,6 +16,7 @@ mod task_complete;
 pub use agent_send::AgentSendTool;
 pub use api_keys_check::ApiKeysCheckTool;
 pub use ask_user::AskUserTool;
+pub use install_api_key::InstallApiKeyTool;
 pub use manage_skills::ManageSkillsTool;
 pub use modify_soul::ModifySoulTool;
 pub use say_to_user::SayToUserTool;

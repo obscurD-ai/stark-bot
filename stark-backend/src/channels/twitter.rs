@@ -434,8 +434,13 @@ pub async fn start_twitter_listener(
                                     replies_this_hour = 0;
                                 }
 
-                                // Check hourly rate limit (0 = unlimited)
-                                if config.max_mentions_per_hour > 0 && replies_this_hour >= config.max_mentions_per_hour {
+                                // Check if author is the admin (bypass rate limit + reply chance)
+                                let is_admin = config.admin_user_id.as_ref()
+                                    .map(|admin_id| admin_id == &mention.author_id)
+                                    .unwrap_or(false);
+
+                                // Check hourly rate limit (0 = unlimited, admin always bypasses)
+                                if !is_admin && config.max_mentions_per_hour > 0 && replies_this_hour >= config.max_mentions_per_hour {
                                     log::info!(
                                         "Twitter: Hourly rate limit reached ({}/{}), skipping mention {}",
                                         replies_this_hour, config.max_mentions_per_hour, mention.id
@@ -450,8 +455,8 @@ pub async fn start_twitter_listener(
                                     continue;
                                 }
 
-                                // Reply chance roll (100 = always reply)
-                                if config.reply_chance < 100 {
+                                // Reply chance roll (100 = always reply, admin always bypasses)
+                                if !is_admin && config.reply_chance < 100 {
                                     let roll: u8 = rand::thread_rng().gen_range(1..=100);
                                     if roll > config.reply_chance {
                                         log::info!(
@@ -490,9 +495,7 @@ pub async fn start_twitter_listener(
 
                                 // Determine safe mode: admin gets standard mode, everyone else gets safe mode.
                                 // When no admin is configured, all tweets are safe mode.
-                                let is_admin = config.admin_user_id.as_ref()
-                                    .map(|admin_id| admin_id == &mention.author_id)
-                                    .unwrap_or(false);
+                                // (is_admin was computed above, before rate limit check)
                                 let force_safe_mode = !is_admin;
 
                                 if is_admin {

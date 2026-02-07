@@ -11,6 +11,8 @@
 use async_trait::async_trait;
 use ethers::types::{H256, Signature, U256, transaction::eip2718::TypedTransaction};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::WalletProvider;
 
@@ -71,11 +73,17 @@ struct SignTypedDataResponse {
     signature: String,
 }
 
+/// Response from refresh-token endpoint
+#[derive(Debug, Deserialize)]
+struct RefreshTokenResponse {
+    token: String,
+}
+
 /// Wallet provider that proxies signing to Flash control plane
 pub struct FlashWalletProvider {
     keystore_url: String,
     tenant_id: String,
-    instance_token: String,
+    instance_token: Arc<RwLock<String>>,
     /// Wallet address - fetched from control plane on init
     address: String,
     /// Privy wallet ID - used for signing requests
@@ -104,14 +112,17 @@ impl FlashWalletProvider {
             .build()
             .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
+        let instance_token = Arc::new(RwLock::new(instance_token));
+
         // Fetch wallet info from control plane
         log::info!("Fetching wallet info from Flash control plane...");
         let url = format!("{}/api/keystore/wallet", keystore_url);
 
+        let token = instance_token.read().await.clone();
         let response = http_client
             .get(&url)
             .header("X-Tenant-ID", &tenant_id)
-            .header("X-Instance-Token", &instance_token)
+            .header("X-Instance-Token", &token)
             .send()
             .await
             .map_err(|e| format!("Flash keystore request failed: {}", e))?;
@@ -180,6 +191,79 @@ impl FlashWalletProvider {
 
         Ok(Signature { r, s, v })
     }
+
+    /// Refresh the instance token by calling the control plane's refresh endpoint.
+    /// The control plane accepts expired tokens (up to 30 days old) and returns a fresh one.
+    async fn refresh_instance_token(&self) -> Result<(), String> {
+        let url = format!("{}/api/keystore/refresh-token", self.keystore_url);
+        let old_token = self.instance_token.read().await.clone();
+
+        log::info!("Refreshing expired instance token...");
+
+        let response = self.http_client
+            .post(&url)
+            .header("X-Tenant-ID", &self.tenant_id)
+            .header("X-Instance-Token", &old_token)
+            .send()
+            .await
+            .map_err(|e| format!("Token refresh request failed: {}", e))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Token refresh failed ({}): {}", status, body));
+        }
+
+        let data: RefreshTokenResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse refresh response: {}", e))?;
+
+        let mut token = self.instance_token.write().await;
+        *token = data.token;
+
+        log::info!("Instance token refreshed successfully");
+        Ok(())
+    }
+
+    /// Send a POST request with instance token auth headers.
+    /// On 401, attempts to refresh the token and retry once.
+    async fn post_with_retry<T: Serialize + ?Sized>(
+        &self,
+        url: &str,
+        body: &T,
+    ) -> Result<reqwest::Response, String> {
+        let token = self.instance_token.read().await.clone();
+
+        let response = self.http_client
+            .post(url)
+            .header("X-Tenant-ID", &self.tenant_id)
+            .header("X-Instance-Token", &token)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            log::warn!("Got 401 from control plane, attempting token refresh...");
+
+            self.refresh_instance_token().await?;
+
+            let new_token = self.instance_token.read().await.clone();
+            let retry_response = self.http_client
+                .post(url)
+                .header("X-Tenant-ID", &self.tenant_id)
+                .header("X-Instance-Token", &new_token)
+                .json(body)
+                .send()
+                .await
+                .map_err(|e| format!("Retry request failed: {}", e))?;
+
+            return Ok(retry_response);
+        }
+
+        Ok(response)
+    }
 }
 
 #[async_trait]
@@ -188,22 +272,10 @@ impl WalletProvider for FlashWalletProvider {
         log::debug!("Signing message via Flash control plane");
 
         let url = format!("{}/api/keystore/sign-message", self.keystore_url);
-
-        // Convert message to string (Privy expects UTF-8 or hex)
         let message_str = String::from_utf8_lossy(message).to_string();
+        let request = SignMessageRequest { message: message_str };
 
-        let request = SignMessageRequest {
-            message: message_str,
-        };
-
-        let response = self.http_client
-            .post(&url)
-            .header("X-Tenant-ID", &self.tenant_id)
-            .header("X-Instance-Token", &self.instance_token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| format!("Sign message request failed: {}", e))?;
+        let response = self.post_with_retry(&url, &request).await?;
 
         let status = response.status();
         if !status.is_success() {
@@ -257,14 +329,7 @@ impl WalletProvider for FlashWalletProvider {
             nonce: tx.nonce().map(|n| n.as_u64()),
         };
 
-        let response = self.http_client
-            .post(&url)
-            .header("X-Tenant-ID", &self.tenant_id)
-            .header("X-Instance-Token", &self.instance_token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| format!("Sign transaction request failed: {}", e))?;
+        let response = self.post_with_retry(&url, &request).await?;
 
         let status = response.status();
         if !status.is_success() {
@@ -323,14 +388,7 @@ impl WalletProvider for FlashWalletProvider {
             typed_data: typed_data.clone(),
         };
 
-        let response = self.http_client
-            .post(&url)
-            .header("X-Tenant-ID", &self.tenant_id)
-            .header("X-Instance-Token", &self.instance_token)
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| format!("Sign typed data request failed: {}", e))?;
+        let response = self.post_with_retry(&url, &request).await?;
 
         let status = response.status();
         if !status.is_success() {

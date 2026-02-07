@@ -9,6 +9,7 @@
 //!
 //! IMPORTANT: Transactions are QUEUED, not broadcast. Use broadcast_web3_tx to broadcast.
 
+use super::verify_intent::{self, TransactionIntent};
 use super::web3_tx::parse_u256;
 use crate::tools::registry::Tool;
 use crate::tools::rpc_config::{resolve_rpc_from_context, Network, ResolvedRpcConfig};
@@ -550,6 +551,46 @@ pub(crate) async fn execute_resolved_call(
             wallet_provider,
         ).await {
             Ok(signed) => {
+                // Verify intent before queueing
+                let value_display = if let Ok(w) = signed.value.parse::<u128>() {
+                    let eth = w as f64 / 1e18;
+                    if eth >= 0.0001 {
+                        format!("{:.6} ETH", eth)
+                    } else if w > 0 {
+                        format!("{} wei", signed.value)
+                    } else {
+                        "0 ETH".to_string()
+                    }
+                } else {
+                    format!("{} wei", signed.value)
+                };
+
+                let tx_type = if preset_name.is_some() {
+                    "preset_call"
+                } else {
+                    "contract_call"
+                };
+
+                let intent = TransactionIntent {
+                    tx_type: tx_type.to_string(),
+                    to: contract_addr.to_string(),
+                    value: signed.value.clone(),
+                    value_display,
+                    network: signed.network.clone(),
+                    function_name: Some(function_name.to_string()),
+                    abi_name: Some(abi_name.to_string()),
+                    preset_name: preset_name.map(|s| s.to_string()),
+                    destination_chain: None,
+                    calldata: Some(signed.data.clone()),
+                    description: format!(
+                        "Call {}::{}() on {}",
+                        abi_name, function_name, signed.network,
+                    ),
+                };
+                if let Err(reason) = verify_intent::verify_intent(&intent, context, None).await {
+                    return ToolResult::error(reason);
+                }
+
                 let uuid = Uuid::new_v4().to_string();
 
                 let queued_tx = QueuedTransaction::new(

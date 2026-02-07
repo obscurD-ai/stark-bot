@@ -12,7 +12,7 @@ use crate::wallet::WalletProvider;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use strum::{EnumIter, IntoEnumIterator};
 
 /// Tool groups for access control
@@ -359,6 +359,9 @@ pub struct ToolContext {
     pub memory_store: Option<Arc<MemoryStore>>,
     /// Wallet provider for signing transactions (Standard or Flash mode)
     pub wallet_provider: Option<Arc<dyn WalletProvider>>,
+    /// Runtime API key store (interior-mutable so install_api_key can write via &self)
+    /// Keys are stored as UPPER_SNAKE_CASE names → values
+    pub api_keys: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -382,6 +385,7 @@ impl std::fmt::Debug for ToolContext {
             .field("selected_network", &self.selected_network)
             .field("memory_store", &self.memory_store.is_some())
             .field("wallet_provider", &self.wallet_provider.is_some())
+            .field("api_keys", &self.api_keys.read().ok().map(|m| m.len()))
             .finish()
     }
 }
@@ -407,6 +411,7 @@ impl Default for ToolContext {
             selected_network: None,
             memory_store: None,
             wallet_provider: None,
+            api_keys: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -445,10 +450,15 @@ impl ToolContext {
     /// Add an API key to the context by string name (for backwards compatibility)
     /// Keys are stored by their exact name (e.g., "GITHUB_TOKEN", "MOLTX_API_KEY")
     pub fn with_api_key(mut self, key_name: &str, key_value: String) -> Self {
+        // Write to extra for backward compat
         self.extra.insert(
             format!("api_key_{}", key_name),
             serde_json::json!(key_value),
         );
+        // Also write to the api_keys store
+        if let Ok(mut store) = self.api_keys.write() {
+            store.insert(key_name.to_string(), key_value);
+        }
         self
     }
 
@@ -459,7 +469,17 @@ impl ToolContext {
 
     /// Get an API key from the context by its exact string name
     /// Example: get_api_key("GITHUB_TOKEN")
+    /// Checks the api_keys store first, falls back to extra
     pub fn get_api_key(&self, key_name: &str) -> Option<String> {
+        // Check api_keys store first
+        if let Ok(store) = self.api_keys.read() {
+            if let Some(val) = store.get(key_name) {
+                if !val.is_empty() {
+                    return Some(val.clone());
+                }
+            }
+        }
+        // Fall back to extra
         self.extra.get(&format!("api_key_{}", key_name))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
@@ -469,6 +489,23 @@ impl ToolContext {
     /// This is the preferred method as it prevents typos in key names
     pub fn get_api_key_by_id(&self, key_id: ApiKeyId) -> Option<String> {
         self.get_api_key(key_id.as_str())
+    }
+
+    /// Install an API key at runtime (takes &self, writes via RwLock)
+    /// Used by the install_api_key tool to inject keys into the current session
+    pub fn install_api_key_runtime(&self, key_name: &str, key_value: String) {
+        if let Ok(mut store) = self.api_keys.write() {
+            store.insert(key_name.to_string(), key_value);
+        }
+    }
+
+    /// List all API key names currently in the runtime store
+    pub fn list_api_key_names(&self) -> Vec<String> {
+        self.api_keys
+            .read()
+            .ok()
+            .map(|store| store.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Find a bot token from channel settings for a given channel type.

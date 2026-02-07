@@ -39,7 +39,7 @@ impl TwitterPostTool {
             "reply_to".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Optional: Tweet ID to reply to".to_string(),
+                description: "Optional: The numeric tweet ID to reply to (e.g. \"1893027483920175104\"). Must be a number, NOT a username.".to_string(),
                 default: None,
                 items: None,
                 enum_values: None,
@@ -50,7 +50,7 @@ impl TwitterPostTool {
             "quote_tweet_id".to_string(),
             PropertySchema {
                 schema_type: "string".to_string(),
-                description: "Optional: Tweet ID to quote".to_string(),
+                description: "Optional: The numeric tweet ID to quote (e.g. \"1893027483920175104\"). Must be a number, NOT a username.".to_string(),
                 default: None,
                 items: None,
                 enum_values: None,
@@ -186,6 +186,24 @@ impl Tool for TwitterPostTool {
                 return ToolResult::error(format!(
                     "Tweet exceeds maximum character limit ({} > {})",
                     char_count, max_chars
+                ));
+            }
+        }
+
+        // Validate tweet IDs are numeric before calling the API
+        if let Some(reply_to) = &params.reply_to {
+            if !reply_to.chars().all(|c| c.is_ascii_digit()) || reply_to.is_empty() {
+                return ToolResult::error(format!(
+                    "reply_to must be a numeric tweet ID (e.g. \"1893027483920175104\"), got \"{}\"",
+                    reply_to
+                ));
+            }
+        }
+        if let Some(quote_id) = &params.quote_tweet_id {
+            if !quote_id.chars().all(|c| c.is_ascii_digit()) || quote_id.is_empty() {
+                return ToolResult::error(format!(
+                    "quote_tweet_id must be a numeric tweet ID (e.g. \"1893027483920175104\"), got \"{}\"",
+                    quote_id
                 ));
             }
         }

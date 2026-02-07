@@ -32,6 +32,7 @@ fn register_all_tools(registry: &mut ToolRegistry) {
     registry.register(Arc::new(builtin::ApiKeysCheckTool::new()));
     registry.register(Arc::new(builtin::TaskFullyCompletedTool::new()));
     registry.register(Arc::new(builtin::ManageSkillsTool::new()));
+    registry.register(Arc::new(builtin::InstallApiKeyTool::new()));
 
     // Web tools (shared)
     registry.register(Arc::new(builtin::WebFetchTool::new()));

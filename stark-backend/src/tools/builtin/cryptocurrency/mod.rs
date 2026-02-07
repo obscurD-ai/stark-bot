@@ -5,6 +5,7 @@
 
 mod bridge_usdc;
 mod broadcast_web3_tx;
+pub mod verify_intent;
 mod decode_calldata;
 mod dexscreener;
 mod list_queued_web3_tx;

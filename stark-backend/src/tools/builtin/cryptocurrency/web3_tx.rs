@@ -11,6 +11,7 @@
 //!
 //! All RPC calls go through defirelay.com with x402 payments.
 
+use super::verify_intent::{self, TransactionIntent};
 use crate::tools::registry::Tool;
 use crate::tools::rpc_config::{resolve_rpc_from_context, Network, ResolvedRpcConfig};
 use crate::tools::types::{
@@ -401,6 +402,29 @@ impl Tool for SendEthTool {
             wallet_provider,
         ).await {
             Ok(signed) => {
+                // Verify intent before queueing
+                let intent = TransactionIntent {
+                    tx_type: "eth_transfer".to_string(),
+                    to: signed.to.clone(),
+                    value: signed.value.clone(),
+                    value_display: Self::format_eth(&signed.value),
+                    network: signed.network.clone(),
+                    function_name: None,
+                    abi_name: None,
+                    preset_name: None,
+                    destination_chain: None,
+                    calldata: None,
+                    description: format!(
+                        "Send {} to {} on {}",
+                        Self::format_eth(&signed.value),
+                        signed.to,
+                        signed.network,
+                    ),
+                };
+                if let Err(reason) = verify_intent::verify_intent(&intent, context, None).await {
+                    return ToolResult::error(reason);
+                }
+
                 // Generate UUID for this queued transaction
                 let uuid = Uuid::new_v4().to_string();
 

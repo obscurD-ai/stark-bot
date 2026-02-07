@@ -193,10 +193,12 @@ struct WebFetchParams {
 }
 
 /// Build a lookup map from env var names to values using the ToolContext's API keys.
-/// Maps each ApiKeyId's env_vars() aliases to the stored value.
+/// Maps each ApiKeyId's env_vars() aliases to the stored value, then adds custom keys.
 fn build_env_var_map(context: &ToolContext) -> HashMap<String, String> {
     use crate::controllers::api_keys::ApiKeyId;
     let mut map = HashMap::new();
+
+    // Built-in keys with their env_var aliases
     for key_id in ApiKeyId::iter() {
         if let Some(value) = context.get_api_key_by_id(key_id) {
             if !value.is_empty() {
@@ -208,6 +210,19 @@ fn build_env_var_map(context: &ToolContext) -> HashMap<String, String> {
             }
         }
     }
+
+    // Custom keys from the runtime store (e.g., ALLIUM_API_KEY → $ALLIUM_API_KEY)
+    for name in context.list_api_key_names() {
+        if map.contains_key(&name) {
+            continue; // built-in already handled
+        }
+        if let Some(value) = context.get_api_key(&name) {
+            if !value.is_empty() {
+                map.insert(name, value);
+            }
+        }
+    }
+
     map
 }
 

@@ -18,10 +18,11 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use super::web3_function_call::default_abis_dir;
+
 /// Decode calldata tool
 pub struct DecodeCalldataTool {
     definition: ToolDefinition,
-    abis_dir: PathBuf,
 }
 
 impl DecodeCalldataTool {
@@ -72,11 +73,6 @@ impl DecodeCalldataTool {
             },
         );
 
-        // Determine abis directory relative to working directory
-        let abis_dir = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("abis");
-
         DecodeCalldataTool {
             definition: ToolDefinition {
                 name: "decode_calldata".to_string(),
@@ -88,13 +84,12 @@ impl DecodeCalldataTool {
                 },
                 group: ToolGroup::Finance,
             },
-            abis_dir,
         }
     }
 
     /// Load ABI from file
-    fn load_abi(&self, name: &str) -> Result<AbiFile, String> {
-        let path = self.abis_dir.join(format!("{}.json", name));
+    fn load_abi(&self, abis_dir: &PathBuf, name: &str) -> Result<AbiFile, String> {
+        let path = abis_dir.join(format!("{}.json", name));
 
         let content = std::fs::read_to_string(&path)
             .map_err(|e| format!("Failed to load ABI '{}': {}. Available ABIs are in the /abis folder.", name, e))?;
@@ -289,7 +284,8 @@ impl Tool for DecodeCalldataTool {
         };
 
         // Load and parse ABI
-        let abi_file = match self.load_abi(&params.abi) {
+        let abis_dir = default_abis_dir();
+        let abi_file = match self.load_abi(&abis_dir, &params.abi) {
             Ok(a) => a,
             Err(e) => return ToolResult::error(e),
         };

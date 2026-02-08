@@ -14,12 +14,10 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 /// Web3 preset function call tool
 pub struct Web3PresetFunctionCallTool {
     definition: ToolDefinition,
-    abis_dir: PathBuf,
 }
 
 impl Web3PresetFunctionCallTool {
@@ -59,8 +57,6 @@ impl Web3PresetFunctionCallTool {
             },
         );
 
-        let abis_dir = default_abis_dir();
-
         Web3PresetFunctionCallTool {
             definition: ToolDefinition {
                 name: "web3_preset_function_call".to_string(),
@@ -72,7 +68,6 @@ impl Web3PresetFunctionCallTool {
                 },
                 group: ToolGroup::Finance,
             },
-            abis_dir,
         }
     }
 }
@@ -233,8 +228,10 @@ impl Tool for Web3PresetFunctionCallTool {
             params.preset, preset.abi, preset.function
         );
 
+        let abis_dir = default_abis_dir();
+
         execute_resolved_call(
-            &self.abis_dir,
+            &abis_dir,
             &preset.abi,
             &contract,
             &preset.function,

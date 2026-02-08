@@ -70,11 +70,9 @@ pub(crate) fn resolve_network(param_network: Option<&str>, context_network: Opti
         .map_err(|_| format!("Invalid network '{}'. Must be one of: base, mainnet, polygon", network_str))
 }
 
-/// Determine abis directory
+/// Determine abis directory — always relative to the repo root
 pub(crate) fn default_abis_dir() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("abis")
+    crate::config::repo_root().join("abis")
 }
 
 /// Load ABI from file
@@ -661,7 +659,6 @@ pub(crate) async fn execute_resolved_call(
 /// Web3 function call tool (manual mode)
 pub struct Web3FunctionCallTool {
     definition: ToolDefinition,
-    pub(crate) abis_dir: PathBuf,
 }
 
 impl Web3FunctionCallTool {
@@ -751,8 +748,6 @@ impl Web3FunctionCallTool {
             },
         );
 
-        let abis_dir = default_abis_dir();
-
         Web3FunctionCallTool {
             definition: ToolDefinition {
                 name: "web3_function_call".to_string(),
@@ -764,7 +759,6 @@ impl Web3FunctionCallTool {
                 },
                 group: ToolGroup::Finance,
             },
-            abis_dir,
         }
     }
 }
@@ -816,8 +810,10 @@ impl Tool for Web3FunctionCallTool {
         log::info!("[WEB3_FUNCTION_CALL] Using network: {} (from param: {:?}, context: {:?})",
             network, params.network, context.selected_network);
 
+        let abis_dir = default_abis_dir();
+
         execute_resolved_call(
-            &self.abis_dir,
+            &abis_dir,
             &params.abi,
             &params.contract,
             &params.function,
@@ -838,14 +834,19 @@ mod tests {
     use crate::tools::registry::Tool;
     use serde_json::json;
 
-    /// Helper: create a Web3FunctionCallTool pointing at the repo's abis/ dir
+    /// Helper: create a Web3FunctionCallTool
     fn make_tool() -> Web3FunctionCallTool {
-        let mut tool = Web3FunctionCallTool::new();
+        Web3FunctionCallTool::new()
+    }
+
+    /// Helper: get the repo's abis/ dir for direct ABI loading in tests
+    fn test_abis_dir() -> PathBuf {
         let repo_abis = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("abis");
         if repo_abis.exists() {
-            tool.abis_dir = repo_abis;
+            repo_abis
+        } else {
+            default_abis_dir()
         }
-        tool
     }
 
     // ─── Transfer safety checks ───────────────────────────────────────
@@ -966,14 +967,14 @@ mod tests {
     #[test]
     fn test_load_erc20_abi() {
         let tool = make_tool();
-        let abi_file = load_abi(&tool.abis_dir, "erc20").expect("Should load erc20.json");
+        let abi_file = load_abi(&test_abis_dir(), "erc20").expect("Should load erc20.json");
         assert_eq!(abi_file.name, "ERC20");
     }
 
     #[test]
     fn test_find_transfer_function() {
         let tool = make_tool();
-        let abi_file = load_abi(&tool.abis_dir, "erc20").unwrap();
+        let abi_file = load_abi(&test_abis_dir(), "erc20").unwrap();
         let abi = parse_abi(&abi_file).unwrap();
         let func = find_function(&abi, "transfer").expect("Should find transfer");
         assert_eq!(func.inputs.len(), 2);
@@ -982,7 +983,7 @@ mod tests {
     #[test]
     fn test_encode_transfer_call() {
         let tool = make_tool();
-        let abi_file = load_abi(&tool.abis_dir, "erc20").unwrap();
+        let abi_file = load_abi(&test_abis_dir(), "erc20").unwrap();
         let abi = parse_abi(&abi_file).unwrap();
         let func = find_function(&abi, "transfer").unwrap();
 
@@ -999,7 +1000,7 @@ mod tests {
     #[test]
     fn test_encode_call_wrong_param_count() {
         let tool = make_tool();
-        let abi_file = load_abi(&tool.abis_dir, "erc20").unwrap();
+        let abi_file = load_abi(&test_abis_dir(), "erc20").unwrap();
         let abi = parse_abi(&abi_file).unwrap();
         let func = find_function(&abi, "transfer").unwrap();
 

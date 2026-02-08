@@ -65,7 +65,7 @@ fn resolve_backend_dir(env_var: &str, default_name: &str) -> String {
 
 /// Get the workspace directory from environment or default
 pub fn workspace_dir() -> String {
-    resolve_dir(env_vars::WORKSPACE_DIR, defaults::WORKSPACE_DIR)
+    resolve_backend_dir(env_vars::WORKSPACE_DIR, defaults::WORKSPACE_DIR)
 }
 
 /// Get the skills directory from environment or default
@@ -75,7 +75,7 @@ pub fn skills_dir() -> String {
 
 /// Get the journal directory from environment or default
 pub fn journal_dir() -> String {
-    resolve_dir(env_vars::JOURNAL_DIR, defaults::JOURNAL_DIR)
+    resolve_backend_dir(env_vars::JOURNAL_DIR, defaults::JOURNAL_DIR)
 }
 
 /// Get the soul directory from environment or default

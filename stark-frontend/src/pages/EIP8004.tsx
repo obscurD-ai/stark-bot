@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import AnimatedLicense from '@/components/AnimatedLicense';
 import { useApi } from '@/hooks/useApi';
 
 type Tab = 'identity' | 'reputation' | 'discovery' | 'config';

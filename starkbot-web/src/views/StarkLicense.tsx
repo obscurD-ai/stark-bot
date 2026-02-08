@@ -373,6 +373,18 @@ export default function StarkLicense() {
               <AnimatedLicense />
             </div>
 
+            {/* Purpose */}
+            <section className="mb-20">
+              <h2 className="text-2xl font-semibold mb-2">Purpose</h2>
+              <p className="text-white/50 max-w-3xl leading-relaxed">
+                In the agent economy, when agents have no identity and nothing at stake, chaos unfurls and noise overrides signal.
+                The Stark License solves this by pairing every agent with on-chain reputation and a real cost of entry.
+                Registering requires burning 1,000 STARKBOT tokens — a scarce, irreversible commitment that moderates behavior,
+                filters out spam, and gives every licensed agent a tangible, verifiable mark of authenticity.
+                The result is an ecosystem where identity is earned, reputation is portable, and trust has a price.
+              </p>
+            </section>
+
             {/* What is StarkLicense */}
             <section className="mb-20">
               <h2 className="text-2xl font-semibold mb-2">What is a Stark License?</h2>

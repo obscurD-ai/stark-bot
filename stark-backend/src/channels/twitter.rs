@@ -1010,23 +1010,22 @@ async fn process_mention(
         result.error
     );
 
-    // First check the dispatch result (non-say_to_user responses like simple text)
-    if result.error.is_none() && !result.response.is_empty() {
-        Some(result.response)
+    // Priority: say_to_user messages are the actual tweet content the AI composed.
+    // result.response is often just a task_fully_completed summary, not tweet-worthy.
+    let captured = say_to_user_messages.lock().await;
+    if !captured.is_empty() {
+        let last = captured.last().unwrap().clone();
+        log::info!("Twitter: Using say_to_user message ({} chars, {} total captured)", last.len(), captured.len());
+        Some(last)
     } else if let Some(error) = result.error {
         Some(format!("Sorry, I encountered an error: {}", error))
+    } else if !result.response.is_empty() {
+        // Fallback to dispatch response (e.g. simple text replies without say_to_user)
+        log::info!("Twitter: No say_to_user captured, falling back to dispatch response");
+        Some(result.response)
     } else {
-        // Dispatch returned empty response — check if say_to_user delivered via events
-        let captured = say_to_user_messages.lock().await;
-        if !captured.is_empty() {
-            // Use the LAST say_to_user message (the final response, not intermediate ones)
-            let last = captured.last().unwrap().clone();
-            log::info!("Twitter: Using say_to_user message from events ({} chars, {} total captured)", last.len(), captured.len());
-            Some(last)
-        } else {
-            log::warn!("Twitter: No response from dispatch and no say_to_user events for @{}", author_username);
-            None
-        }
+        log::warn!("Twitter: No response from dispatch and no say_to_user events for @{}", author_username);
+        None
     }
 }
 

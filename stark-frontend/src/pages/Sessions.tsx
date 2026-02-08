@@ -58,6 +58,14 @@ export default function Sessions() {
     loadSessions();
   }, []);
 
+  // Clear selected session when navigating back to index (e.g. via sidebar nav)
+  useEffect(() => {
+    if (!sessionId) {
+      setSelectedSession(null);
+      setMessages([]);
+    }
+  }, [sessionId]);
+
   // Auto-load session from URL params
   useEffect(() => {
     if (sessionId && !isLoading && !selectedSession) {

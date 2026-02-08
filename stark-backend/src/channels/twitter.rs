@@ -36,6 +36,11 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 120;
 /// Twitter API v2 base URL
 const TWITTER_API_BASE: &str = "https://api.twitter.com/2";
 
+/// Maximum number of tweets to fetch for thread context
+const MAX_THREAD_TWEETS: usize = 100;
+
+/// Maximum characters of thread context to include in the hint
+const MAX_THREAD_CONTEXT_CHARS: usize = 15_000;
 
 /// Configuration for the Twitter listener
 #[derive(Debug, Clone)]
@@ -257,6 +262,31 @@ struct TwitterUser {
     name: String,
     /// X Premium subscription type: None, Basic, Premium, PremiumPlus
     subscription_type: Option<String>,
+}
+
+/// Twitter API v2 search response for thread context (includes user expansions)
+#[derive(Debug, Deserialize)]
+struct ThreadSearchResponse {
+    data: Option<Vec<ThreadTweet>>,
+    includes: Option<ThreadIncludes>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThreadTweet {
+    id: String,
+    text: String,
+    author_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThreadIncludes {
+    users: Option<Vec<ThreadUser>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThreadUser {
+    id: String,
+    username: String,
 }
 
 /// Twitter API v2 tweet post response
@@ -514,6 +544,7 @@ pub async fn start_twitter_listener(
                                     &dispatcher,
                                     &broadcaster,
                                     &bot_mention_regex,
+                                    &client,
                                 ).await;
 
                                 // Mark as processed before replying (to avoid double-processing on errors)
@@ -723,6 +754,129 @@ async fn lookup_user(
         .ok_or_else(|| "User not found".to_string())
 }
 
+/// Fetch thread context for a tweet that's part of a conversation.
+/// Returns formatted thread context string, or None on any error (graceful degradation).
+async fn fetch_thread_context(
+    client: &reqwest::Client,
+    config: &TwitterConfig,
+    conversation_id: &str,
+    current_tweet_id: &str,
+) -> Option<String> {
+    let url = format!("{}/tweets/search/recent", TWITTER_API_BASE);
+
+    let query = format!("conversation_id:{}", conversation_id);
+    let max_results = MAX_THREAD_TWEETS.min(100).to_string();
+
+    let params: Vec<(&str, &str)> = vec![
+        ("query", &query),
+        ("expansions", "author_id"),
+        ("user.fields", "username"),
+        ("max_results", &max_results),
+    ];
+
+    // Build full URL with query string
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", percent_encode(k), percent_encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let full_url = format!("{}?{}", url, query_string);
+
+    // Generate OAuth header (params must be included in signature)
+    let auth_header = generate_oauth_header("GET", &url, &config.credentials, Some(&params));
+
+    let response = match client
+        .get(&full_url)
+        .header("Authorization", auth_header)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("Twitter: Failed to fetch thread context: {}", e);
+            return None;
+        }
+    };
+
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        log::warn!(
+            "Twitter: Thread context API error ({}): {}",
+            status,
+            if body.len() > 200 { &body[..200] } else { &body }
+        );
+        return None;
+    }
+
+    let data: ThreadSearchResponse = match serde_json::from_str(&body) {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("Twitter: Failed to parse thread context response: {}", e);
+            return None;
+        }
+    };
+
+    let tweets = data.data?;
+    if tweets.is_empty() {
+        return None;
+    }
+
+    // Build author_id → username map from includes
+    let user_map: std::collections::HashMap<String, String> = data
+        .includes
+        .and_then(|inc| inc.users)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|u| (u.id, u.username))
+        .collect();
+
+    // API returns newest-first; reverse for chronological order
+    let mut thread_tweets: Vec<_> = tweets
+        .into_iter()
+        .filter(|t| t.id != current_tweet_id) // exclude the current tweet
+        .collect();
+    thread_tweets.reverse();
+
+    if thread_tweets.is_empty() {
+        return None;
+    }
+
+    // Build thread context string, respecting character limit
+    let mut context_lines = Vec::new();
+    let mut total_chars = 0;
+    let mut truncated = false;
+
+    for tweet in &thread_tweets {
+        let username = tweet
+            .author_id
+            .as_ref()
+            .and_then(|aid| user_map.get(aid))
+            .map(|u| u.as_str())
+            .unwrap_or("unknown");
+        let line = format!("@{}: {}", username, tweet.text);
+
+        if total_chars + line.len() > MAX_THREAD_CONTEXT_CHARS {
+            truncated = true;
+            break;
+        }
+        total_chars += line.len();
+        context_lines.push(line);
+    }
+
+    if context_lines.is_empty() {
+        return None;
+    }
+
+    let mut result = context_lines.join("\n");
+    if truncated {
+        result.push_str("\n[thread truncated]");
+    }
+
+    Some(result)
+}
+
 /// Extract command text from a tweet, removing @mentions
 fn extract_command_text(text: &str, bot_mention_regex: &Regex) -> String {
     // Remove @bot_handle (case-insensitive) and any other @mentions at the start
@@ -749,6 +903,7 @@ async fn process_mention(
     dispatcher: &Arc<MessageDispatcher>,
     broadcaster: &Arc<EventBroadcaster>,
     bot_mention_regex: &Regex,
+    client: &reqwest::Client,
 ) -> Option<String> {
     // Extract the actual command/message text
     let command_text = extract_command_text(&tweet.text, bot_mention_regex);
@@ -758,16 +913,40 @@ async fn process_mention(
         return None;
     }
 
-    // Add source hint to help the agent understand the context
-    let char_hint = if config.subscription_tier.allows_long_tweets() {
-        "This is an X Premium account. Keep tweets succinct, under 500 characters when possible. Do NOT mention character limits in your response."
-    } else {
-        "Keep response under 280 chars or it will be threaded"
+    // Fetch thread context if this tweet is part of a conversation
+    let thread_context = match &tweet.conversation_id {
+        Some(conv_id) if conv_id != &tweet.id => {
+            log::info!(
+                "Twitter: Tweet {} is part of conversation {}, fetching thread context",
+                tweet.id, conv_id
+            );
+            fetch_thread_context(client, config, conv_id, &tweet.id).await
+        }
+        _ => None,
     };
-    let text_with_hint = format!(
-        "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n{}",
-        author_username, char_hint, command_text
-    );
+
+    // Add source hint to help the agent understand the context.
+    // Only warn about 280-char limit when we positively know it's a free/basic account.
+    let char_hint = match config.subscription_tier {
+        XSubscriptionTier::None | XSubscriptionTier::Basic => {
+            "Keep response under 280 chars or it will be threaded. Do NOT mention character limits in your response."
+        }
+        _ => {
+            "Keep response concise, around 600-800 characters. Do NOT mention character limits in your response."
+        }
+    };
+
+    let text_with_hint = if let Some(ref ctx) = thread_context {
+        format!(
+            "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n[THREAD CONTEXT - conversation history:]\n{}\n\n[POST DIRECTED TO YOU - YOU ARE REPLYING TO THIS POST:]\n@{}: {}",
+            author_username, char_hint, ctx, author_username, command_text
+        )
+    } else {
+        format!(
+            "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n{}",
+            author_username, char_hint, command_text
+        )
+    };
 
     // Create normalized message for dispatcher
     let normalized = NormalizedMessage {
@@ -1088,5 +1267,88 @@ mod tests {
             }]),
         };
         assert!(is_retweet_or_quote(&retweet));
+    }
+
+    #[test]
+    fn test_thread_context_detection() {
+        // Standalone tweet: conversation_id == tweet.id → no thread
+        let standalone = Tweet {
+            id: "100".to_string(),
+            text: "@bot hello".to_string(),
+            author_id: "200".to_string(),
+            conversation_id: Some("100".to_string()),
+            in_reply_to_user_id: None,
+            referenced_tweets: None,
+        };
+        let is_thread = match &standalone.conversation_id {
+            Some(conv_id) if conv_id != &standalone.id => true,
+            _ => false,
+        };
+        assert!(!is_thread, "Standalone tweet should not be detected as thread");
+
+        // Thread reply: conversation_id != tweet.id → is thread
+        let thread_reply = Tweet {
+            id: "105".to_string(),
+            text: "@bot what do you think?".to_string(),
+            author_id: "200".to_string(),
+            conversation_id: Some("100".to_string()),
+            in_reply_to_user_id: Some("300".to_string()),
+            referenced_tweets: Some(vec![ReferencedTweet {
+                ref_type: "replied_to".to_string(),
+                id: "104".to_string(),
+            }]),
+        };
+        let is_thread = match &thread_reply.conversation_id {
+            Some(conv_id) if conv_id != &thread_reply.id => true,
+            _ => false,
+        };
+        assert!(is_thread, "Thread reply should be detected as thread");
+
+        // No conversation_id at all → not a thread
+        let no_conv = Tweet {
+            id: "110".to_string(),
+            text: "@bot hi".to_string(),
+            author_id: "200".to_string(),
+            conversation_id: None,
+            in_reply_to_user_id: None,
+            referenced_tweets: None,
+        };
+        let is_thread = match &no_conv.conversation_id {
+            Some(conv_id) if conv_id != &no_conv.id => true,
+            _ => false,
+        };
+        assert!(!is_thread, "Tweet without conversation_id should not be thread");
+    }
+
+    #[test]
+    fn test_thread_context_hint_format() {
+        let re = Regex::new(r"(?i)@starkbot").unwrap();
+        let command_text = extract_command_text("@starkbot what do you think?", &re);
+
+        let author_username = "charlie";
+        let char_hint = "Keep response under 280 chars or it will be threaded";
+
+        // With thread context
+        let thread_ctx = "@alice: Has anyone tried the new DeFi protocol?\n@bob: Yeah it looks promising but the TVL is low";
+
+        let hint_with_thread = format!(
+            "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n[THREAD CONTEXT - conversation history:]\n{}\n\n[POST DIRECTED TO YOU - YOU ARE REPLYING TO THIS POST:]\n@{}: {}",
+            author_username, char_hint, thread_ctx, author_username, command_text
+        );
+
+        assert!(hint_with_thread.contains("[THREAD CONTEXT - conversation history:]"));
+        assert!(hint_with_thread.contains("@alice: Has anyone tried"));
+        assert!(hint_with_thread.contains("@bob: Yeah it looks promising"));
+        assert!(hint_with_thread.contains("[POST DIRECTED TO YOU - YOU ARE REPLYING TO THIS POST:]"));
+        assert!(hint_with_thread.contains("@charlie: what do you think?"));
+
+        // Without thread context (standalone)
+        let hint_standalone = format!(
+            "[TWITTER MENTION from @{} - {}. Reply using say_to_user — your reply will be posted to Twitter automatically.]\n\n{}",
+            author_username, char_hint, command_text
+        );
+
+        assert!(!hint_standalone.contains("[THREAD CONTEXT"));
+        assert!(hint_standalone.contains("what do you think?"));
     }
 }

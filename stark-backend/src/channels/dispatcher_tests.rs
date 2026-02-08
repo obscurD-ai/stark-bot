@@ -669,6 +669,18 @@ async fn swap_flow_with_trace() {
 #[ignore]
 async fn swap_flow_realistic() {
     use crate::skills::SkillRegistry;
+    use crate::tools::builtin::cryptocurrency::{token_lookup, network_lookup};
+    use crate::tools::presets;
+
+    // === Load config (tokens, networks, presets) ===
+    let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("config");
+    // OnceLock-based — safe to call multiple times
+    token_lookup::load_tokens(&config_dir);
+    network_lookup::load_networks(&config_dir);
+    presets::load_presets(&config_dir);
 
     // === Read env vars (skip if not set) ===
     let endpoint = match std::env::var("TEST_AGENT_ENDPOINT") {

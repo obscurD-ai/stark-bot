@@ -555,13 +555,13 @@ export function MindMapDemo() {
               <div className="group cursor-pointer">
                 <Heart
                   size={16}
-                  className={`${heartbeatEnabled ? 'text-red-500 fill-red-500 animate-heartbeat' : 'text-gray-500 group-hover-heartbeat'} transition-colors group-hover:text-red-400 group-hover:fill-red-400 group-hover:animate-heartbeat`}
+                  className={`${heartbeatEnabled ? 'text-blue-500 fill-blue-500 animate-heartbeat' : 'text-gray-500 group-hover-heartbeat'} transition-colors group-hover:text-blue-400 group-hover:fill-blue-400 group-hover:animate-heartbeat`}
                 />
               </div>
               <button
                 onClick={() => setHeartbeatEnabled(!heartbeatEnabled)}
                 className={`relative w-10 h-5 rounded-full transition-colors ${
-                  heartbeatEnabled ? 'bg-red-500' : 'bg-gray-600'
+                  heartbeatEnabled ? 'bg-blue-500' : 'bg-gray-600'
                 } cursor-pointer`}
                 title={heartbeatEnabled ? 'Disable heartbeat' : 'Enable heartbeat'}
               >

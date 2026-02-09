@@ -364,6 +364,18 @@ impl ExecTool {
             }
         }
 
+        // Debug: log all injected environment variables (background path)
+        if !env_vars.is_empty() {
+            let var_names: Vec<&String> = env_vars.keys().collect();
+            log::debug!("[EXEC/BG] Injected env vars for command '{}': {:?}", params.command, var_names);
+            for (name, val) in &env_vars {
+                let preview = if val.len() > 8 { &val[..8] } else { val.as_str() };
+                log::debug!("[EXEC/BG]   {}={}... (len={})", name, preview, val.len());
+            }
+        } else {
+            log::debug!("[EXEC/BG] No env vars injected for command '{}'", params.command);
+        }
+
         // Spawn via ProcessManager
         match process_manager
             .spawn(
@@ -557,7 +569,22 @@ impl Tool for ExecTool {
         if let Some(ref env_vars) = params.env {
             for (key, value) in env_vars {
                 cmd.env(key, value);
+                available_env_vars.push(key.clone());
             }
+        }
+
+        // Debug: log all injected environment variables
+        if !available_env_vars.is_empty() {
+            log::debug!("[EXEC] Injected env vars for command '{}': {:?}", params.command, available_env_vars);
+            for var_name in &available_env_vars {
+                // Log masked values: show first 8 chars + length for debugging
+                if let Some(val) = context.get_api_key(var_name) {
+                    let preview = if val.len() > 8 { &val[..8] } else { &val };
+                    log::debug!("[EXEC]   {}={}... (len={})", var_name, preview, val.len());
+                }
+            }
+        } else {
+            log::debug!("[EXEC] No env vars injected for command '{}'", params.command);
         }
 
         // Execute with timeout

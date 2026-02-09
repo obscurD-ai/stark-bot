@@ -169,7 +169,7 @@ export function ChatDemo() {
             <span className="text-xs font-mono text-slate-300 bg-slate-700/50 px-2 py-1 rounded">
               0x57bf...d989
             </span>
-            <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full font-medium">
+            <span className="text-xs px-2 py-0.5 bg-white/10 text-white/60 rounded-full font-medium">
               USDC
             </span>
           </div>

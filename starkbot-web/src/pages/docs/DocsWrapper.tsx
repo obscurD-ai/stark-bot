@@ -79,9 +79,7 @@ export default function DocsWrapper({ attributes, children }: Props) {
         <div className="flex items-center justify-between px-6 h-14">
           {/* Logo */}
           <NavLink to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <span className="text-white text-sm font-bold">S</span>
-            </div>
+            <img src="/starkbot-pfp.png" alt="StarkBot" className="w-8 h-8 rounded-lg object-cover" />
           </NavLink>
 
           {/* Search */}
@@ -119,7 +117,7 @@ export default function DocsWrapper({ attributes, children }: Props) {
           <div className="max-w-4xl mx-auto px-8 py-10">
             {/* Breadcrumb */}
             {currentSection && (
-              <div className="text-sm text-blue-400 font-medium mb-2">
+              <div className="text-sm text-white/60 font-medium mb-2">
                 {currentSection.title}
               </div>
             )}
@@ -155,7 +153,7 @@ export default function DocsWrapper({ attributes, children }: Props) {
                       item.level === 3 ? 'pl-4' : ''
                     } ${
                       activeId === item.id
-                        ? 'text-blue-400'
+                        ? 'text-white'
                         : 'text-white/40 hover:text-white/70'
                     }`}
                   >

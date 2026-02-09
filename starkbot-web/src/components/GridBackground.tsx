@@ -41,19 +41,19 @@ export function GridBackground() {
         <defs>
           {/* Gradient for the flowing lines - more subtle */}
           <linearGradient id="lineGradient1" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(59, 130, 246, 0)" />
-            <stop offset="50%" stopColor="rgba(59, 130, 246, 0.35)" />
-            <stop offset="100%" stopColor="rgba(59, 130, 246, 0)" />
+            <stop offset="0%" stopColor="rgba(255, 255, 255, 0)" />
+            <stop offset="50%" stopColor="rgba(255, 255, 255, 0.2)" />
+            <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
           </linearGradient>
           <linearGradient id="lineGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(139, 92, 246, 0)" />
-            <stop offset="50%" stopColor="rgba(139, 92, 246, 0.25)" />
-            <stop offset="100%" stopColor="rgba(139, 92, 246, 0)" />
+            <stop offset="0%" stopColor="rgba(192, 192, 192, 0)" />
+            <stop offset="50%" stopColor="rgba(192, 192, 192, 0.15)" />
+            <stop offset="100%" stopColor="rgba(192, 192, 192, 0)" />
           </linearGradient>
           <linearGradient id="lineGradient3" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(6, 182, 212, 0)" />
-            <stop offset="50%" stopColor="rgba(6, 182, 212, 0.2)" />
-            <stop offset="100%" stopColor="rgba(6, 182, 212, 0)" />
+            <stop offset="0%" stopColor="rgba(160, 160, 160, 0)" />
+            <stop offset="50%" stopColor="rgba(160, 160, 160, 0.12)" />
+            <stop offset="100%" stopColor="rgba(160, 160, 160, 0)" />
           </linearGradient>
 
           {/* Subtle glow filter */}
@@ -111,21 +111,21 @@ export function GridBackground() {
 
       {/* Floating orbs - also react to mouse */}
       <div
-        className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] animate-orb-1"
+        className="absolute top-1/4 left-1/4 w-96 h-96 bg-white/5 rounded-full blur-[100px] animate-orb-1"
         style={{
           transform: `translate(${offsetX * 0.5}px, ${offsetY * 0.5}px)`,
           transition: 'transform 0.5s ease-out',
         }}
       />
       <div
-        className="absolute top-1/3 right-1/4 w-80 h-80 bg-purple-500/8 rounded-full blur-[80px] animate-orb-2"
+        className="absolute top-1/3 right-1/4 w-80 h-80 bg-white/[0.04] rounded-full blur-[80px] animate-orb-2"
         style={{
           transform: `translate(${offsetX * -0.3}px, ${offsetY * 0.4}px)`,
           transition: 'transform 0.6s ease-out',
         }}
       />
       <div
-        className="absolute top-1/2 left-1/3 w-64 h-64 bg-cyan-500/5 rounded-full blur-[60px] animate-orb-3"
+        className="absolute top-1/2 left-1/3 w-64 h-64 bg-white/[0.03] rounded-full blur-[60px] animate-orb-3"
         style={{
           transform: `translate(${offsetX * 0.4}px, ${offsetY * -0.3}px)`,
           transition: 'transform 0.7s ease-out',

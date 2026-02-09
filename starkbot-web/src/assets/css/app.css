@@ -36,17 +36,17 @@ body {
   50% { opacity: 0.4; }
 }
 
-/* Blue glow */
+/* Monochrome glow */
 .glow {
-  box-shadow: 0 0 60px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 60px rgba(255, 255, 255, 0.15);
 }
 
-.glow-blue {
-  box-shadow: 0 0 40px rgba(59, 130, 246, 0.4);
+.glow-silver {
+  box-shadow: 0 0 40px rgba(192, 192, 192, 0.3);
 }
 
 .card-glow:hover {
-  box-shadow: 0 0 40px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.1);
 }
 
 /* Flowing line animations */
@@ -198,7 +198,7 @@ body {
 }
 
 .markdown-body a {
-  @apply text-blue-400 hover:text-blue-300 underline underline-offset-2;
+  @apply text-white/70 hover:text-white underline underline-offset-2;
 }
 
 .markdown-body code {
@@ -214,7 +214,7 @@ body {
 }
 
 .markdown-body blockquote {
-  @apply border-l-4 border-blue-500/50 pl-4 italic text-white/60 my-4 bg-white/5 py-2;
+  @apply border-l-4 border-white/30 pl-4 italic text-white/60 my-4 bg-white/5 py-2;
 }
 
 .markdown-body table {
@@ -275,7 +275,7 @@ body {
 
 /* Chat demo glow effect */
 .chat-demo-glow {
-  box-shadow: 0 0 80px rgba(249, 115, 22, 0.15), 0 0 40px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 80px rgba(255, 255, 255, 0.08), 0 0 40px rgba(192, 192, 192, 0.1);
 }
 
 /* Heartbeat animation */
@@ -307,5 +307,5 @@ body {
 
 /* License card ID glow */
 .license-id-glow {
-  text-shadow: 0 0 20px rgba(99, 102, 241, 0.5), 0 0 40px rgba(59, 130, 246, 0.3);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.3), 0 0 40px rgba(192, 192, 192, 0.2);
 }

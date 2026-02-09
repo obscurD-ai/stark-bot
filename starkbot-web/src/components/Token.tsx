@@ -15,11 +15,11 @@ export function Token() {
   return (
     <section className="py-8 px-6">
       <div className="max-w-5xl mx-auto">
-        <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-2xl border border-blue-500/20 px-6 py-4">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] rounded-2xl border border-white/10 px-6 py-4">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             {/* Token Icon */}
             <div className="flex-shrink-0">
-              <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <div className="w-14 h-14 bg-gradient-to-br from-white/15 to-white/5 rounded-xl flex items-center justify-center shadow-lg shadow-white/10 border border-white/10">
                 <Coins className="w-7 h-7 text-white" />
               </div>
             </div>
@@ -27,7 +27,7 @@ export function Token() {
             {/* Token Name */}
             <div className="flex items-center gap-3">
               <h3 className="text-xl font-bold text-white">$STARKBOT</h3>
-              <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs font-medium rounded-full">
+              <span className="px-2 py-0.5 bg-white/10 text-white/60 text-xs font-medium rounded-full">
                 BASE
               </span>
             </div>
@@ -38,7 +38,7 @@ export function Token() {
                 href="https://app.uniswap.org/swap?chain=base&outputCurrency=0x587Cd533F418825521f3A1daa7CCd1E7339A1B07"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white text-sm font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-white/20 to-white/10 hover:from-white/25 hover:to-white/15 text-white text-sm font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-white/10 border border-white/20"
               >
                 Buy
                 <ExternalLink className="w-3.5 h-3.5" />

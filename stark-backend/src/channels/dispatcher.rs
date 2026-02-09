@@ -813,8 +813,11 @@ impl MessageDispatcher {
         let mut github_token_loaded = false;
         if !is_safe_mode {
             if let Ok(keys) = self.db.list_api_keys() {
+                log::debug!("[DISPATCH] Loading {} API keys from database into ToolContext", keys.len());
                 for key in keys {
                     let key_id = ApiKeyId::from_str(&key.service_name).ok();
+                    let preview = if key.api_key.len() > 8 { &key.api_key[..8] } else { &key.api_key };
+                    log::debug!("[DISPATCH]   Loading key: {} (len={}, prefix={}...)", key.service_name, key.api_key.len(), preview);
 
                     if key_id == Some(ApiKeyId::GithubToken) {
                         github_token_loaded = true;
@@ -822,6 +825,8 @@ impl MessageDispatcher {
                     tool_context = tool_context.with_api_key(&key.service_name, key.api_key.clone());
                 }
             }
+        } else {
+            log::debug!("[DISPATCH] Safe mode enabled — skipping API key loading");
         }
 
         // If GitHub token is loaded, query GitHub API to get authenticated user

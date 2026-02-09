@@ -18,7 +18,7 @@ export default function DocsSidenav() {
                 className={({ isActive }) =>
                   `px-4 py-2 text-sm font-mono transition-colors ${
                     isActive
-                      ? 'bg-blue-500/10 text-blue-400 border-r-2 border-blue-500'
+                      ? 'bg-white/10 text-white border-r-2 border-white/50'
                       : 'text-white/50 hover:text-white/80 hover:bg-white/5'
                   }`
                 }

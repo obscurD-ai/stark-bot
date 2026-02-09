@@ -24,7 +24,7 @@ export function CTA() {
             href="https://github.com/ethereumdegen/stark-bot"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25"
+            className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-white/20 to-white/10 hover:from-white/25 hover:to-white/15 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-white/10 border border-white/20"
           >
             <Github className="w-6 h-6" />
             Star on GitHub
@@ -40,7 +40,7 @@ export function CTA() {
           </a>
           <Link
             to="/docs"
-            className="inline-flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-semibold rounded-xl transition-all duration-300 border border-white/20 hover:border-blue-500/50"
+            className="inline-flex items-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 text-white font-semibold rounded-xl transition-all duration-300 border border-white/20 hover:border-white/40"
           >
             <BookOpen className="w-6 h-6" />
             Read the Docs

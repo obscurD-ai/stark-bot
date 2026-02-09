@@ -6,7 +6,7 @@ import { GridBackground } from '../components/GridBackground'
 
 function LogoCard({ src, name }: { src: string; name: string }) {
   return (
-    <div className="flex flex-col items-center gap-6 p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-blue-500/30 transition-all duration-300">
+    <div className="flex flex-col items-center gap-6 p-8 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-white/30 transition-all duration-300">
       <div className="w-full flex items-center justify-center p-6 bg-[#111] rounded-xl min-h-[200px]">
         <img src={src} alt={name} className="max-h-40 object-contain" />
       </div>
@@ -15,7 +15,7 @@ function LogoCard({ src, name }: { src: string; name: string }) {
         <a
           href={src}
           download
-          className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-all duration-300 border border-blue-500/20 hover:border-blue-500/40 text-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 text-white/70 rounded-lg transition-all duration-300 border border-white/20 hover:border-white/40 text-sm"
         >
           <Download className="w-4 h-4" />
           Download PNG
@@ -63,8 +63,10 @@ export default function BrandKit() {
               <h2 className="text-2xl font-semibold mb-2">Logos</h2>
               <p className="text-white/50 mb-8">Download the official StarkBot logos for use in your projects and integrations.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <LogoCard src="/starkbot.png" name="StarkBot Logo" />
-                <LogoCard src="/starkbot2.png" name="StarkBot Logo (Alt)" />
+                <LogoCard src="/starkbot-pfp.png" name="StarkBot PFP" />
+                <LogoCard src="/starkbot-icon-chrome.png" name="StarkBot Icon (Chrome)" />
+                <LogoCard src="/starkbot-icon-line.png" name="StarkBot Icon (Line)" />
+                <LogoCard src="/starkbot-icon-circuit.png" name="StarkBot Icon (Circuit)" />
               </div>
             </section>
 
@@ -73,10 +75,10 @@ export default function BrandKit() {
               <h2 className="text-2xl font-semibold mb-2">Colors</h2>
               <p className="text-white/50 mb-8">The core color palette used across StarkBot.</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                <ColorSwatch name="Background" hex="#1a1a1a" color="bg-[#1a1a1a]" />
-                <ColorSwatch name="Blue 500" hex="#3b82f6" color="bg-blue-500" />
-                <ColorSwatch name="Blue 700" hex="#1d4ed8" color="bg-blue-700" />
-                <ColorSwatch name="Blue 400" hex="#60a5fa" color="bg-blue-400" />
+                <ColorSwatch name="Black" hex="#0a0a0a" color="bg-[#0a0a0a]" />
+                <ColorSwatch name="Dark" hex="#1a1a1a" color="bg-[#1a1a1a]" />
+                <ColorSwatch name="Silver" hex="#c0c0c0" color="bg-[#c0c0c0]" />
+                <ColorSwatch name="Light Grey" hex="#d4d4d4" color="bg-[#d4d4d4]" />
                 <ColorSwatch name="White" hex="#ffffff" color="bg-white" />
               </div>
             </section>
@@ -103,6 +105,10 @@ export default function BrandKit() {
                   </ul>
                 </div>
               </div>
+
+              <p className="text-white/20 text-xs text-center mt-8">
+                brand kit contribution by bawsa
+              </p>
             </section>
           </div>
         </main>

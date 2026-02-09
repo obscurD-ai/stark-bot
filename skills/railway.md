@@ -1,7 +1,7 @@
 ---
 name: railway
 description: "Manage Railway infrastructure - deploy services, manage environment variables, and monitor deployments using the Railway CLI."
-version: 3.0.0
+version: 3.1.0
 author: starkbot
 homepage: https://railway.com
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🚂"}}

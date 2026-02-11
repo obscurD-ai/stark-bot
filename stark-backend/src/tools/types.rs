@@ -43,6 +43,16 @@ pub enum ToolSafetyLevel {
     SafeMode,
 }
 
+impl ToolSafetyLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ToolSafetyLevel::Standard => "standard",
+            ToolSafetyLevel::ReadOnly => "read_only",
+            ToolSafetyLevel::SafeMode => "safe_mode",
+        }
+    }
+}
+
 /// Tool groups for access control
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter)]
 #[serde(rename_all = "lowercase")]

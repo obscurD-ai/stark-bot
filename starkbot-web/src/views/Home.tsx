@@ -10,6 +10,7 @@ import { FloatingNav } from '../components/FloatingNav'
 import { Stars } from '../components/Stars'
 import { Token } from '../components/Token'
 import { LicenseTeaser } from '../components/LicenseTeaser'
+import { CommunityHubs } from '../components/CommunityHubs'
 
 export default function Home() {
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function Home() {
         <Hero />
         <Features />
         <Token />
+        <CommunityHubs />
         <GetStarted />
         <CTA />
         <LicenseTeaser />

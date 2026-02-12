@@ -914,20 +914,23 @@ impl MessageDispatcher {
                             log::error!("[DISPATCH] Failed to record x402 payment: {}", e);
                         }
                     }
-                    Ok(content)
+                    Ok((content, false))
                 }
                 Err(e) => Err(e),
             }
         };
 
         match final_response {
-            Ok(response) => {
+            Ok((response, from_say_to_user)) => {
                 // Estimate tokens for the response
                 let response_tokens = estimate_tokens(&response);
 
                 // Store AI response in session with token count
                 // Skip storing empty responses (nothing useful to persist)
-                if response.trim().is_empty() {
+                // Skip if from_say_to_user — already saved as ToolResult, avoid duplicate in transcript
+                if from_say_to_user {
+                    log::info!("[DISPATCH] Skipping assistant save — say_to_user already stored as ToolResult");
+                } else if response.trim().is_empty() {
                     log::info!("[DISPATCH] Skipping empty assistant response");
                 } else if let Err(e) = self.db.add_session_message(
                     session.id,
@@ -1063,7 +1066,7 @@ impl MessageDispatcher {
         original_message: &NormalizedMessage,
         archetype_id: ArchetypeId,
         is_safe_mode: bool,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
         // Load existing agent context or create new one
         let mut orchestrator = match self.db.get_agent_context(session_id) {
             Ok(Some(context)) => {
@@ -1226,7 +1229,7 @@ impl MessageDispatcher {
                     log::error!("[TOOL_LOOP] Failed to record x402 payment: {}", e);
                 }
             }
-            return Ok(content);
+            return Ok((content, false));
         }
 
         // Get the archetype for this request
@@ -2197,7 +2200,12 @@ impl MessageDispatcher {
         final_summary: &str,
         user_question_content: &str,
         max_tool_iterations: usize,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
+        // The bool in the return tuple indicates whether the response came from say_to_user
+        // (already saved as ToolResult in the DB, so dispatch() should skip the Assistant save)
+        let from_say_to_user = !last_say_to_user_content.is_empty()
+            && !waiting_for_user_response;
+
         // Clear active skill when the orchestrator loop completes
         if orchestrator_complete || was_cancelled {
             if orchestrator.context().active_skill.is_some() {
@@ -2274,14 +2282,14 @@ impl MessageDispatcher {
                     log::warn!("[MULTI_AGENT] Failed to save context with user_context: {}", e);
                 }
             }
-            Ok(user_question_content.to_string())
+            Ok((user_question_content.to_string(), false))
         } else if !last_say_to_user_content.is_empty() {
             // say_to_user content IS the final result — return it directly.
-            // dispatch() will store it as assistant message and send to channel.
+            // Already saved as ToolResult in DB, so dispatch() should skip the Assistant save.
             log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
-            Ok(last_say_to_user_content.to_string())
+            Ok((last_say_to_user_content.to_string(), from_say_to_user))
         } else if orchestrator_complete {
-            Ok(final_summary.to_string())
+            Ok((final_summary.to_string(), false))
         } else if tool_call_log.is_empty() {
             Err(format!(
                 "Tool loop hit max iterations ({}) without completion",
@@ -2323,7 +2331,7 @@ impl MessageDispatcher {
         orchestrator: &mut Orchestrator,
         session_id: i64,
         is_safe_mode: bool,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
         // Get max tool iterations from bot settings
         let max_tool_iterations = self.db.get_bot_settings()
             .map(|s| s.max_tool_iterations as usize)
@@ -2792,7 +2800,7 @@ impl MessageDispatcher {
                 // say_to_user content takes priority — it IS the final result
                 if !last_say_to_user_content.is_empty() {
                     log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
-                    return Ok(last_say_to_user_content.clone());
+                    return Ok((last_say_to_user_content.clone(), true));
                 }
 
                 if orchestrator_complete {
@@ -2803,14 +2811,14 @@ impl MessageDispatcher {
                     if !final_summary.is_empty() { parts.push(&final_summary); }
                     if !ai_response.content.trim().is_empty() { parts.push(&ai_response.content); }
                     let response = parts.join("\n\n");
-                    return Ok(response);
+                    return Ok((response, false));
                 } else {
                     // No tool calls but not complete
                     if tool_call_log.is_empty() {
-                        return Ok(ai_response.content);
+                        return Ok((ai_response.content, false));
                     } else {
                         let tool_log_text = tool_call_log.join("\n");
-                        return Ok(format!("{}\n\n{}", tool_log_text, ai_response.content));
+                        return Ok((format!("{}\n\n{}", tool_log_text, ai_response.content), false));
                     }
                 }
             }
@@ -2984,7 +2992,7 @@ impl MessageDispatcher {
         orchestrator: &mut Orchestrator,
         session_id: i64,
         is_safe_mode: bool,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
         // Get max tool iterations from bot settings
         let max_tool_iterations = self.db.get_bot_settings()
             .map(|s| s.max_tool_iterations as usize)

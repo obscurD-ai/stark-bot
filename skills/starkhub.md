@@ -1,11 +1,11 @@
 ---
 name: starkhub
 description: "Browse, search, install, and submit skills on StarkHub (hub.starkbot.ai) — the decentralized skills directory for StarkBot agents."
-version: 1.0.2
+version: 1.1.0
 author: starkbot
 homepage: https://hub.starkbot.ai
 metadata: {"clawdbot":{"emoji":"🌐"}}
-requires_tools: [web_fetch, manage_skills]
+requires_tools: [web_fetch, manage_skills, siwa_auth]
 tags: [general, all, skills, hub, discovery, meta, management]
 arguments:
   query:
@@ -163,39 +163,35 @@ If the skill already exists locally, use `"action": "update"` instead.
 
 Publishing a skill to StarkHub requires authentication and a StarkLicense NFT.
 
-### Step 1: Authenticate (SIWE)
+### Step 1: Authenticate (SIWA)
 
-Get a nonce:
-
-```json
-{
-  "tool": "web_fetch",
-  "url": "https://hub.starkbot.ai/api/auth/nonce",
-  "extract_mode": "raw"
-}
-```
-
-Returns `{"nonce": "..."}`.
-
-Then verify (sign in). The `wallet_address` register contains the agent's address:
+Use the `siwa_auth` tool to perform a real wallet-signed authentication handshake with StarkHub. This signs a SIWA message with your wallet (works with both standard and Privy/Flash wallets) and caches the auth receipt.
 
 ```json
 {
-  "tool": "web_fetch",
-  "url": "https://hub.starkbot.ai/api/auth/verify",
-  "method": "POST",
-  "body": {
-    "message": "Sign in to StarkHub\nNonce: <nonce>\nAddress: <wallet_address>",
-    "signature": "0x",
-    "address": "<wallet_address>"
-  },
-  "extract_mode": "raw"
+  "tool": "siwa_auth",
+  "server_url": "https://hub.starkbot.ai/api",
+  "nonce_path": "/auth/nonce",
+  "verify_path": "/auth/verify",
+  "domain": "hub.starkbot.ai",
+  "uri": "https://hub.starkbot.ai",
+  "chain_id": 8453,
+  "statement": "Sign in to StarkHub",
+  "cache_as": "starkhub_auth"
 }
 ```
 
-Returns `{"token": "...", "wallet_address": "...", ...}`.
+The tool will:
+1. POST to `/auth/nonce` to get a nonce
+2. Build and **sign** a SIWA message with your wallet private key (EIP-191 personal_sign)
+3. POST the signed message to `/auth/verify`
+4. Cache the server response in the `starkhub_auth` register
 
-**Save the `token`** — you need it for the submit request.
+The server response contains `{"token": "...", "wallet_address": "...", ...}`.
+
+**Extract the `token` from the `starkhub_auth` register** — you need it for the submit request.
+
+> **IMPORTANT:** Do NOT use placeholder signatures or fake tokens. The `siwa_auth` tool performs real cryptographic signing. If it fails, report the error — do not attempt to submit without a valid token.
 
 ### Step 2: Prepare the Skill Markdown
 
@@ -298,10 +294,11 @@ Only the original author can update their skill.
 
 ### "Publish my skill to StarkHub"
 
-1. Authenticate via SIWE (nonce → verify → token)
+1. Authenticate via `siwa_auth` (real wallet signing → token cached in `starkhub_auth` register)
 2. Read the local skill markdown (via `manage_skills` get or `read_file`)
-3. Submit via `POST /api/submit` with auth header
-4. Confirm pending status to user
+3. Extract the `token` from the `starkhub_auth` register
+4. Submit via `POST /api/submit` with `Authorization: Bearer <token>`
+5. Confirm pending status to user
 
 ### "What categories exist?"
 

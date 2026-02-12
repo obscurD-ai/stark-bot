@@ -2274,14 +2274,14 @@ impl MessageDispatcher {
                     log::warn!("[MULTI_AGENT] Failed to save context with user_context: {}", e);
                 }
             }
-            Ok((user_question_content.to_string(), false))
+            Ok(user_question_content.to_string())
         } else if !last_say_to_user_content.is_empty() {
             // say_to_user content IS the final result — return it directly.
-            // Already saved as ToolResult in DB, so dispatch() should skip the Assistant save.
+            // dispatch() will store it as assistant message and send to channel.
             log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
-            Ok((last_say_to_user_content.to_string(), from_say_to_user))
+            Ok(last_say_to_user_content.to_string())
         } else if orchestrator_complete {
-            Ok((final_summary.to_string(), false))
+            Ok(final_summary.to_string())
         } else if tool_call_log.is_empty() {
             Err(format!(
                 "Tool loop hit max iterations ({}) without completion",
@@ -2323,7 +2323,7 @@ impl MessageDispatcher {
         orchestrator: &mut Orchestrator,
         session_id: i64,
         is_safe_mode: bool,
-    ) -> Result<(String, bool), String> {
+    ) -> Result<String, String> {
         // Get max tool iterations from bot settings
         let max_tool_iterations = self.db.get_bot_settings()
             .map(|s| s.max_tool_iterations as usize)
@@ -2792,7 +2792,7 @@ impl MessageDispatcher {
                 // say_to_user content takes priority — it IS the final result
                 if !last_say_to_user_content.is_empty() {
                     log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
-                    return Ok((last_say_to_user_content.clone(), true));
+                    return Ok(last_say_to_user_content.clone());
                 }
 
                 if orchestrator_complete {
@@ -2803,14 +2803,14 @@ impl MessageDispatcher {
                     if !final_summary.is_empty() { parts.push(&final_summary); }
                     if !ai_response.content.trim().is_empty() { parts.push(&ai_response.content); }
                     let response = parts.join("\n\n");
-                    return Ok((response, false));
+                    return Ok(response);
                 } else {
                     // No tool calls but not complete
                     if tool_call_log.is_empty() {
-                        return Ok((ai_response.content, false));
+                        return Ok(ai_response.content);
                     } else {
                         let tool_log_text = tool_call_log.join("\n");
-                        return Ok((format!("{}\n\n{}", tool_log_text, ai_response.content), false));
+                        return Ok(format!("{}\n\n{}", tool_log_text, ai_response.content));
                     }
                 }
             }
@@ -2984,7 +2984,7 @@ impl MessageDispatcher {
         orchestrator: &mut Orchestrator,
         session_id: i64,
         is_safe_mode: bool,
-    ) -> Result<(String, bool), String> {
+    ) -> Result<String, String> {
         // Get max tool iterations from bot settings
         let max_tool_iterations = self.db.get_bot_settings()
             .map(|s| s.max_tool_iterations as usize)

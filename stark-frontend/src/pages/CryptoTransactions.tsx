@@ -4,7 +4,7 @@ import Card, { CardContent } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useApi } from '@/hooks/useApi';
 import type { QueuedTransactionsResponse, QueuedTransactionInfo, BroadcastedTransactionsResponse, BroadcastedTransactionInfo, X402PaymentLimit } from '@/lib/api';
-import { getBroadcastedTransactions, getX402PaymentLimits, updateX402PaymentLimit } from '@/lib/api';
+import { getBroadcastedTransactions, getQueuedTransaction, getX402PaymentLimits, updateX402PaymentLimit } from '@/lib/api';
 import TxQueueConfirmationModal, { TxQueueTransaction } from '@/components/chat/TxQueueConfirmationModal';
 
 type StatusFilter = 'all' | 'pending' | 'broadcast' | 'confirmed' | 'failed';
@@ -407,8 +407,18 @@ export default function CryptoTransactions() {
                           className={`border-b border-slate-700/50 hover:bg-slate-700/30 ${
                             tx.status === 'pending' ? 'cursor-pointer' : ''
                           }`}
-                          onClick={() => {
+                          onClick={async () => {
                             if (tx.status === 'pending') {
+                              // Re-fetch latest status to avoid stale data (e.g. rogue mode already broadcast it)
+                              try {
+                                const fresh = await getQueuedTransaction(tx.uuid);
+                                if (fresh.transaction?.status !== 'pending') {
+                                  refetch(); // refresh the list to show updated status
+                                  return;
+                                }
+                              } catch {
+                                // If fetch fails, fall through and try to open modal anyway
+                              }
                               setSelectedTx({
                                 uuid: tx.uuid,
                                 network: tx.network,

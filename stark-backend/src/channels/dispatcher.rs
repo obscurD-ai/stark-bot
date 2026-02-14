@@ -1406,37 +1406,8 @@ impl MessageDispatcher {
             subtype.label(),
         ));
 
-        // Get regular tools from registry, filtered by subtype
-        // If there's an active skill with requires_tools, force-include those tools
-        let mut tools = if let Some(ref active_skill) = orchestrator.context().active_skill {
-            if !active_skill.requires_tools.is_empty() {
-                log::info!(
-                    "[TOOL_LOOP] Active skill '{}' requires tools: {:?}",
-                    active_skill.name,
-                    active_skill.requires_tools
-                );
-                self.tool_registry
-                    .get_tool_definitions_for_subtype_with_required(
-                        tool_config,
-                        subtype,
-                        &active_skill.requires_tools,
-                    )
-            } else {
-                self.tool_registry.get_tool_definitions_for_subtype(tool_config, subtype)
-            }
-        } else {
-            self.tool_registry.get_tool_definitions_for_subtype(tool_config, subtype)
-        };
-
-        // Add skills as a "use_skill" pseudo-tool if any are enabled
-        // Skills are also filtered by subtype tags
-        if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
-            tools.push(skill_tool);
-        }
-
-        // Add orchestrator mode-specific tools
-        let mode_tools = orchestrator.get_mode_tools();
-        tools.extend(mode_tools);
+        // Build tool list: subtype-filtered + skill requires_tools + use_skill + mode tools
+        let mut tools = self.build_tool_list(tool_config, subtype, &orchestrator);
 
         // Debug: Log available tools
         log::info!(
@@ -1647,6 +1618,59 @@ impl MessageDispatcher {
             group: ToolGroup::System,
                 hidden: false,
         })
+    }
+
+    /// Build the complete tool list for the current agent state.
+    ///
+    /// This centralizes tool list construction that was previously duplicated
+    /// across 7+ sites. The tool list is built in layers:
+    ///
+    /// 1. **Subtype group filtering** — each `AgentSubtype` allows specific `ToolGroup`s.
+    ///    Tools outside those groups are excluded.
+    /// 2. **Skill `requires_tools` force-inclusion** — if the active skill specifies
+    ///    `requires_tools`, those tools are force-included even if their group isn't
+    ///    allowed by the subtype.
+    /// 3. **`use_skill` pseudo-tool** — added if any skills are enabled in the DB.
+    /// 4. **Orchestrator mode tools** — e.g. `define_tasks` in TaskPlanner mode.
+    /// 5. **`define_tasks` stripping** — removed unless the active skill's
+    ///    `requires_tools` explicitly includes it (keeps it out of Assistant mode).
+    ///
+    /// Note: Safe mode filtering is handled upstream by `ToolConfig`, not here.
+    fn build_tool_list(
+        &self,
+        tool_config: &ToolConfig,
+        subtype: AgentSubtype,
+        orchestrator: &Orchestrator,
+    ) -> Vec<ToolDefinition> {
+        let requires_tools = orchestrator.context().active_skill
+            .as_ref()
+            .map(|s| s.requires_tools.clone())
+            .unwrap_or_default();
+
+        let mut tools = if !requires_tools.is_empty() {
+            self.tool_registry
+                .get_tool_definitions_for_subtype_with_required(
+                    tool_config,
+                    subtype,
+                    &requires_tools,
+                )
+        } else {
+            self.tool_registry
+                .get_tool_definitions_for_subtype(tool_config, subtype)
+        };
+
+        if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
+            tools.push(skill_tool);
+        }
+
+        tools.extend(orchestrator.get_mode_tools());
+
+        let skill_requires_define_tasks = requires_tools.iter().any(|t| t == "define_tasks");
+        if !skill_requires_define_tasks {
+            tools.retain(|t| t.name != "define_tasks");
+        }
+
+        tools
     }
 
     /// Broadcast status update event for the debug panel
@@ -1937,23 +1961,7 @@ impl MessageDispatcher {
                     if let Ok(Some(skill)) = self.db.get_enabled_skill_by_name(requested_skill) {
                         if let Some(new_subtype) = self.apply_skill_subtype(&skill, orchestrator, original_message.channel_id) {
                             // Refresh tools for the newly-set subtype
-                            let requires_tools = orchestrator.context().active_skill
-                                .as_ref()
-                                .map(|s| s.requires_tools.clone())
-                                .unwrap_or_default();
-                            *tools = self.tool_registry
-                                .get_tool_definitions_for_subtype_with_required(
-                                    tool_config,
-                                    new_subtype,
-                                    &requires_tools,
-                                );
-                            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(new_subtype) {
-                                tools.push(skill_tool);
-                            }
-                            tools.extend(orchestrator.get_mode_tools());
-                            if !requires_tools.iter().any(|t| t == "define_tasks") {
-                                tools.retain(|t| t.name != "define_tasks");
-                            }
+                            *tools = self.build_tool_list(tool_config, new_subtype, orchestrator);
                             log::info!(
                                 "[SKILL] Late subtype fix: refreshed toolset to {} with {} tools",
                                 new_subtype.label(),
@@ -1997,28 +2005,14 @@ impl MessageDispatcher {
                                 requires_tools: requires_tools.clone(),
                             });
 
-                            // Force-include required tools in the toolset
-                            if !requires_tools.is_empty() {
-                                let subtype = orchestrator.current_subtype();
-                                *tools = self.tool_registry
-                                    .get_tool_definitions_for_subtype_with_required(
-                                        tool_config,
-                                        subtype,
-                                        &requires_tools,
-                                    );
-                                if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
-                                    tools.push(skill_tool);
-                                }
-                                tools.extend(orchestrator.get_mode_tools());
-                                if !requires_tools.iter().any(|t| t == "define_tasks") {
-                                    tools.retain(|t| t.name != "define_tasks");
-                                }
-                                log::info!(
-                                    "[SKILL] Refreshed toolset with {} tools (including {} required by skill)",
-                                    tools.len(),
-                                    requires_tools.len()
-                                );
-                            }
+                            // Refresh tools to include skill-required tools
+                            let subtype = orchestrator.current_subtype();
+                            *tools = self.build_tool_list(tool_config, subtype, orchestrator);
+                            log::info!(
+                                "[SKILL] Refreshed toolset with {} tools (skill requires {:?})",
+                                tools.len(),
+                                requires_tools
+                            );
                         }
                     }
                 }
@@ -2130,37 +2124,8 @@ impl MessageDispatcher {
                         new_subtype.label()
                     );
 
-                    // Refresh tools for new subtype, including skill-required tools
-                    let requires_tools = orchestrator.context().active_skill
-                        .as_ref()
-                        .map(|s| s.requires_tools.clone())
-                        .unwrap_or_default();
-                    *tools = if !requires_tools.is_empty() {
-                        self.tool_registry
-                            .get_tool_definitions_for_subtype_with_required(
-                                tool_config,
-                                new_subtype,
-                                &requires_tools,
-                            )
-                    } else {
-                        self.tool_registry
-                            .get_tool_definitions_for_subtype(tool_config, new_subtype)
-                    };
-                    if let Some(skill_tool) =
-                        self.create_skill_tool_definition_for_subtype(new_subtype)
-                    {
-                        tools.push(skill_tool);
-                    }
-                    tools.extend(orchestrator.get_mode_tools());
-                    {
-                        let skill_requires_dt = orchestrator.context().active_skill
-                            .as_ref()
-                            .map(|s| s.requires_tools.iter().any(|t| t == "define_tasks"))
-                            .unwrap_or(false);
-                        if !skill_requires_dt {
-                            tools.retain(|t| t.name != "define_tasks");
-                        }
-                    }
+                    // Refresh tools for new subtype
+                    *tools = self.build_tool_list(tool_config, new_subtype, orchestrator);
 
                     // Broadcast toolset update
                     self.broadcast_toolset_update(
@@ -2820,17 +2785,9 @@ impl MessageDispatcher {
                     }
                 }
             } else {
-                // In assistant mode, strip define_tasks — it should only be available
-                // in TaskPlanner mode or when a skill explicitly requires it.
-                let skill_requires_define_tasks = orchestrator.context().active_skill
-                    .as_ref()
-                    .map(|s| s.requires_tools.iter().any(|t| t == "define_tasks"))
-                    .unwrap_or(false);
-                if skill_requires_define_tasks {
-                    tools.clone()
-                } else {
-                    tools.iter().filter(|t| t.name != "define_tasks").cloned().collect()
-                }
+                // In assistant mode, tools already have define_tasks stripped
+                // by build_tool_list() — just clone.
+                tools.clone()
             };
 
             // Debug: log tools sent to AI on every iteration
@@ -2935,25 +2892,9 @@ impl MessageDispatcher {
                         Some("Executing tasks"),
                     ));
 
-                    // Update tools for assistant mode (strip define_tasks unless skill requires it)
+                    // Update tools for assistant mode
                     let subtype = orchestrator.current_subtype();
-                    let skill_rt = orchestrator.context().active_skill
-                        .as_ref()
-                        .map(|s| s.requires_tools.clone())
-                        .unwrap_or_default();
-                    tools = if !skill_rt.is_empty() {
-                        self.tool_registry.get_tool_definitions_for_subtype_with_required(tool_config, subtype, &skill_rt)
-                    } else {
-                        self.tool_registry.get_tool_definitions_for_subtype(tool_config, subtype)
-                    };
-                    if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
-                        tools.push(skill_tool);
-                    }
-                    tools.extend(orchestrator.get_mode_tools());
-                    let skill_requires_dt = skill_rt.iter().any(|t| t == "define_tasks");
-                    if !skill_requires_dt {
-                        tools.retain(|t| t.name != "define_tasks");
-                    }
+                    tools = self.build_tool_list(tool_config, subtype, &orchestrator);
 
                     // Broadcast toolset update
                     self.broadcast_toolset_update(
@@ -3005,27 +2946,9 @@ impl MessageDispatcher {
                     Some(&transition.reason),
                 ));
 
-                // Update tools for new mode (using current subtype, strip define_tasks unless skill requires it)
+                // Update tools for new mode
                 let subtype = orchestrator.current_subtype();
-                let skill_rt = orchestrator.context().active_skill
-                    .as_ref()
-                    .map(|s| s.requires_tools.clone())
-                    .unwrap_or_default();
-                tools = if !skill_rt.is_empty() {
-                    self.tool_registry.get_tool_definitions_for_subtype_with_required(tool_config, subtype, &skill_rt)
-                } else {
-                    self.tool_registry.get_tool_definitions_for_subtype(tool_config, subtype)
-                };
-                if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
-                    tools.push(skill_tool);
-                }
-                tools.extend(orchestrator.get_mode_tools());
-                {
-                    let skill_requires_dt = skill_rt.iter().any(|t| t == "define_tasks");
-                    if !skill_requires_dt {
-                        tools.retain(|t| t.name != "define_tasks");
-                    }
-                }
+                tools = self.build_tool_list(tool_config, subtype, &orchestrator);
 
                 // Emit task for toolset update
                 if let Some(ref exec_id) = self.execution_tracker.get_execution_id(original_message.channel_id) {
@@ -3454,15 +3377,7 @@ impl MessageDispatcher {
             .map(|s| s.max_tool_iterations as usize)
             .unwrap_or(FALLBACK_MAX_TOOL_ITERATIONS);
 
-        // Strip define_tasks from text-tools path — it's only for TaskPlanner mode (native)
-        // or when a skill explicitly requires it
-        let skill_requires_define_tasks = orchestrator.context().active_skill
-            .as_ref()
-            .map(|s| s.requires_tools.iter().any(|t| t == "define_tasks"))
-            .unwrap_or(false);
-        if !skill_requires_define_tasks {
-            tools.retain(|t| t.name != "define_tasks");
-        }
+        // Note: define_tasks stripping is handled by build_tool_list() at the call site
 
         // Build conversation with orchestrator's system prompt
         let mut conversation = messages.clone();
@@ -3564,24 +3479,9 @@ impl MessageDispatcher {
                     Some(&transition.reason),
                 ));
 
-                // Update tools (using current subtype, strip define_tasks unless skill requires it)
+                // Update tools for new mode
                 let subtype = orchestrator.current_subtype();
-                let skill_rt = orchestrator.context().active_skill
-                    .as_ref()
-                    .map(|s| s.requires_tools.clone())
-                    .unwrap_or_default();
-                tools = if !skill_rt.is_empty() {
-                    self.tool_registry.get_tool_definitions_for_subtype_with_required(tool_config, subtype, &skill_rt)
-                } else {
-                    self.tool_registry.get_tool_definitions_for_subtype(tool_config, subtype)
-                };
-                if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype) {
-                    tools.push(skill_tool);
-                }
-                tools.extend(orchestrator.get_mode_tools());
-                if !skill_requires_define_tasks {
-                    tools.retain(|t| t.name != "define_tasks");
-                }
+                tools = self.build_tool_list(tool_config, subtype, orchestrator);
 
                 // Broadcast toolset update
                 self.broadcast_toolset_update(

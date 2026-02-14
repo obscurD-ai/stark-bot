@@ -1550,3 +1550,267 @@ async fn say_to_user_mixed_with_other_tools_does_not_trigger_loop_break() {
         trace.len()
     );
 }
+
+// ============================================================================
+// build_tool_list() unit tests
+// ============================================================================
+
+/// Helper to create a minimal dispatcher for build_tool_list() tests.
+/// No mock AI client needed since build_tool_list() doesn't call the AI.
+fn build_tool_list_harness() -> MessageDispatcher {
+    let db = Arc::new(Database::new(":memory:").expect("in-memory db"));
+    db.save_agent_settings(
+        "http://mock.test/v1/chat/completions",
+        "kimi",
+        4096,
+        100_000,
+        None,
+    )
+    .expect("save agent settings");
+
+    let broadcaster = Arc::new(EventBroadcaster::new());
+    let execution_tracker = Arc::new(ExecutionTracker::new(broadcaster.clone()));
+    let tool_registry = Arc::new(tools::create_default_registry());
+    let skill_registry = Arc::new(SkillRegistry::new(db.clone()));
+
+    MessageDispatcher::new_with_wallet_and_skills(
+        db,
+        broadcaster,
+        tool_registry,
+        execution_tracker,
+        None,
+        Some(skill_registry),
+    )
+}
+
+#[test]
+fn test_build_tool_list_subtype_filters_groups() {
+    use crate::ai::multi_agent::types::AgentSubtype;
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default(); // Full profile
+    let orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+
+    // Finance subtype should include Finance group tools but NOT Development/Exec/Messaging
+    let finance_tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = finance_tools.iter().map(|t| t.name.as_str()).collect();
+
+    // Finance tools should be present
+    assert!(tool_names.contains(&"token_lookup"), "Finance subtype should have token_lookup");
+    // Development tools should NOT be present
+    assert!(!tool_names.contains(&"edit_file"), "Finance subtype should NOT have edit_file");
+    assert!(!tool_names.contains(&"exec"), "Finance subtype should NOT have exec");
+
+    // CodeEngineer subtype should include Development/Exec but NOT Finance/Messaging
+    let code_tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::CodeEngineer,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = code_tools.iter().map(|t| t.name.as_str()).collect();
+
+    assert!(tool_names.contains(&"edit_file"), "CodeEngineer should have edit_file");
+    assert!(!tool_names.contains(&"token_lookup"), "CodeEngineer should NOT have token_lookup");
+}
+
+#[test]
+fn test_build_tool_list_skill_requires_tools_force_includes() {
+    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default();
+    let mut orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+
+    // Set an active skill that requires a Messaging tool (not in Finance subtype)
+    orchestrator.context_mut().active_skill = Some(ActiveSkill {
+        name: "test_skill".into(),
+        instructions: "test".into(),
+        activated_at: "2026-01-01".into(),
+        tool_calls_made: 0,
+        requires_tools: vec!["agent_send".into()],
+    });
+
+    let tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+
+    // agent_send (Messaging group) should be force-included even in Finance subtype
+    assert!(
+        tool_names.contains(&"agent_send"),
+        "Skill requires_tools should force-include agent_send in Finance subtype. Got: {:?}",
+        tool_names
+    );
+}
+
+#[test]
+fn test_build_tool_list_safe_mode_blocks_skill_required_tools() {
+    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::safe_mode(); // Safe mode config
+    let mut orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+
+    // Set an active skill that requires agent_send
+    orchestrator.context_mut().active_skill = Some(ActiveSkill {
+        name: "test_skill".into(),
+        instructions: "test".into(),
+        activated_at: "2026-01-01".into(),
+        tool_calls_made: 0,
+        requires_tools: vec!["agent_send".into()],
+    });
+
+    let tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+
+    // Safe mode should block agent_send even though skill requires it
+    assert!(
+        !tool_names.contains(&"agent_send"),
+        "Safe mode should block agent_send even when skill requires it. Got: {:?}",
+        tool_names
+    );
+}
+
+#[test]
+fn test_build_tool_list_no_skill_no_force_include() {
+    use crate::ai::multi_agent::types::AgentSubtype;
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default();
+    let orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+
+    // No active skill — cross-group tools should NOT be included
+    let tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+
+    assert!(
+        !tool_names.contains(&"agent_send"),
+        "Without active skill, agent_send should NOT be in Finance tools"
+    );
+    assert!(
+        !tool_names.contains(&"edit_file"),
+        "Without active skill, edit_file should NOT be in Finance tools"
+    );
+}
+
+#[test]
+fn test_build_tool_list_define_tasks_stripped_unless_skill_requires() {
+    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default();
+
+    // Without skill requiring define_tasks, it should be stripped
+    let orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+    let tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator,
+    );
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        !tool_names.contains(&"define_tasks"),
+        "define_tasks should be stripped when no skill requires it"
+    );
+
+    // With skill requiring define_tasks, it should be kept
+    let mut orchestrator2 = crate::ai::multi_agent::Orchestrator::new("test".into());
+    orchestrator2.context_mut().active_skill = Some(ActiveSkill {
+        name: "planning_skill".into(),
+        instructions: "test".into(),
+        activated_at: "2026-01-01".into(),
+        tool_calls_made: 0,
+        requires_tools: vec!["define_tasks".into()],
+    });
+    let tools2 = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator2,
+    );
+    let tool_names2: Vec<&str> = tools2.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        tool_names2.contains(&"define_tasks"),
+        "define_tasks should be present when skill requires it. Got: {:?}",
+        tool_names2
+    );
+}
+
+#[test]
+fn test_build_tool_list_includes_mode_tools() {
+    use crate::ai::multi_agent::types::AgentSubtype;
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default();
+
+    // TaskPlanner mode should add define_tasks via get_mode_tools()
+    let orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+    assert_eq!(orchestrator.current_mode(), crate::ai::multi_agent::types::AgentMode::TaskPlanner);
+
+    // build_tool_list adds mode tools but then strips define_tasks (no skill requires it).
+    // This verifies mode tools ARE considered (define_tasks gets added then stripped).
+    // To verify it's actually added by mode, we use a skill that requires it.
+    let mut orchestrator2 = crate::ai::multi_agent::Orchestrator::new("test".into());
+    orchestrator2.context_mut().active_skill = Some(crate::ai::multi_agent::types::ActiveSkill {
+        name: "planner_skill".into(),
+        instructions: "test".into(),
+        activated_at: "2026-01-01".into(),
+        tool_calls_made: 0,
+        requires_tools: vec!["define_tasks".into()],
+    });
+    let tools = dispatcher.build_tool_list(
+        &config,
+        AgentSubtype::Finance,
+        &orchestrator2,
+    );
+    let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        tool_names.contains(&"define_tasks"),
+        "TaskPlanner mode + skill requiring define_tasks should include it"
+    );
+}
+
+#[test]
+fn test_build_tool_list_consistent_across_subtypes() {
+    use crate::ai::multi_agent::types::{ActiveSkill, AgentSubtype};
+    use crate::tools::ToolConfig;
+
+    let dispatcher = build_tool_list_harness();
+    let config = ToolConfig::default();
+
+    // Same inputs should always produce same output
+    let mut orchestrator = crate::ai::multi_agent::Orchestrator::new("test".into());
+    orchestrator.context_mut().active_skill = Some(ActiveSkill {
+        name: "test_skill".into(),
+        instructions: "test".into(),
+        activated_at: "2026-01-01".into(),
+        tool_calls_made: 0,
+        requires_tools: vec!["agent_send".into()],
+    });
+
+    let tools1 = dispatcher.build_tool_list(&config, AgentSubtype::Finance, &orchestrator);
+    let tools2 = dispatcher.build_tool_list(&config, AgentSubtype::Finance, &orchestrator);
+
+    let names1: Vec<&str> = tools1.iter().map(|t| t.name.as_str()).collect();
+    let names2: Vec<&str> = tools2.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names1, names2, "Same inputs should always produce same tool list");
+}

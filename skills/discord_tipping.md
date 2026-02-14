@@ -116,11 +116,11 @@ After success:
 
 The `erc20_transfer` preset reads `token_address`, `recipient_address`, and `transfer_amount` from registers automatically.
 
-Wait for the result. Extract the `uuid` from the response.
+Wait for the result. Extract the `uuid` from the response for the next task.
 
 After success:
 ```json
-{"tool": "task_fully_completed", "summary": "Transfer transaction created."}
+{"tool": "task_fully_completed", "summary": "Transfer tx queued (uuid: <uuid>)."}
 ```
 
 ---
@@ -131,14 +131,16 @@ After success:
 {"tool": "broadcast_web3_tx", "uuid": "<uuid_from_previous_task>"}
 ```
 
+Extract the `tx_hash` from the broadcast response.
+
 After broadcast succeeds:
 ```json
-{"tool": "task_fully_completed", "summary": "Tip broadcast. Verifying next."}
+{"tool": "task_fully_completed", "summary": "Broadcast successful (tx: <tx_hash>)."}
 ```
 
 ---
 
-## Task 7: Verify transfer
+## Task 7: Verify transfer and report result
 
 Call `verify_tx_broadcast` to poll for the receipt and confirm the result:
 
@@ -148,9 +150,18 @@ Call `verify_tx_broadcast` to poll for the receipt and confirm the result:
 
 Read the output:
 
-- **"TRANSACTION VERIFIED"** → The tip succeeded AND the AI confirmed it matches the user's intent. Report success with tx hash and explorer link.
+- **"TRANSACTION VERIFIED"** → The tip succeeded AND the AI confirmed it matches the user's intent.
 - **"TRANSACTION CONFIRMED — INTENT MISMATCH"** → Confirmed on-chain but AI flagged a concern. Tell the user to check the explorer.
 - **"TRANSACTION REVERTED"** → The tip failed. Tell the user.
 - **"CONFIRMATION TIMEOUT"** → Tell the user to check the explorer link.
 
-Call `task_fully_completed` when verify_tx_broadcast returned VERIFIED or CONFIRMED.
+**IMPORTANT:** Before calling `task_fully_completed`, you MUST call `say_to_user` to report the result to the user. Include the tx hash and a basescan explorer link (https://basescan.org/tx/<tx_hash>). Example:
+
+```json
+{"tool": "say_to_user", "message": "Sent 10 STARKBOT to @user! Tx: https://basescan.org/tx/0x123...", "finished_task": false}
+```
+
+Then call `task_fully_completed`:
+```json
+{"tool": "task_fully_completed", "summary": "Tipped <amount> <token> to <user>. Tx: <tx_hash>"}
+```

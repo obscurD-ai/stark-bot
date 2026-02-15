@@ -6,8 +6,6 @@ use crate::ai::{
 use crate::channels::types::{DispatchResult, NormalizedMessage};
 use crate::config::MemoryConfig;
 use crate::context::{self, estimate_tokens, ContextManager};
-use crate::controllers::api_keys::ApiKeyId;
-use std::str::FromStr;
 use crate::db::Database;
 use crate::execution::ExecutionTracker;
 use crate::gateway::events::EventBroadcaster;
@@ -97,6 +95,8 @@ pub struct MessageDispatcher {
     broadcaster: Arc<EventBroadcaster>,
     tool_registry: Arc<ToolRegistry>,
     execution_tracker: Arc<ExecutionTracker>,
+    /// Async write-behind buffer for tool call/result session messages
+    session_writer: crate::channels::session_writer::SessionMessageWriter,
     /// Wallet provider for x402 payments and transaction signing
     /// Encapsulates both Standard mode (EnvWalletProvider with raw private key)
     /// and Flash mode (FlashWalletProvider with Privy proxy)
@@ -209,11 +209,14 @@ impl MessageDispatcher {
         let resource_manager = Arc::new(ResourceManager::new(db.clone()));
         resource_manager.seed_defaults();
 
+        let session_writer = crate::channels::session_writer::SessionMessageWriter::new(db.clone());
+
         Self {
             db,
             broadcaster,
             tool_registry,
             execution_tracker,
+            session_writer,
             wallet_provider,
             context_manager,
             archetype_registry: ArchetypeRegistry::new(),
@@ -293,11 +296,14 @@ impl MessageDispatcher {
         let rollout_manager = Arc::new(RolloutManager::new(db.clone()));
         let resource_manager = Arc::new(ResourceManager::new(db.clone()));
 
+        let session_writer = crate::channels::session_writer::SessionMessageWriter::new(db.clone());
+
         Self {
             db: db.clone(),
             broadcaster,
             tool_registry: Arc::new(ToolRegistry::new()),
             execution_tracker,
+            session_writer,
             wallet_provider: None,
             context_manager,
             archetype_registry: ArchetypeRegistry::new(),
@@ -617,6 +623,9 @@ impl MessageDispatcher {
                     session.id, DbMessageRole::Assistant,
                     &format!("[Error] {}", error), None, None, None, None,
                 );
+                // Mark session as Failed so it doesn't stay stuck as Active
+                let _ = self.db.update_session_completion_status(session.id, CompletionStatus::Failed);
+                self.broadcast_session_complete(message.channel_id, session.id);
                 self.execution_tracker.complete_execution(message.channel_id);
                 self.rollout_manager.fail_attempt(&mut rollout, &error, &span_collector);
                 self.telemetry_store.persist_spans(&span_collector);
@@ -654,12 +663,15 @@ impl MessageDispatcher {
                         session.id, DbMessageRole::Assistant,
                         &format!("[Error] {}", error), None, None, None, None,
                     );
+                    // Mark session as Failed so it doesn't stay stuck as Active
+                    let _ = self.db.update_session_completion_status(session.id, CompletionStatus::Failed);
+                    self.broadcast_session_complete(message.channel_id, session.id);
                     self.broadcaster.broadcast(GatewayEvent::agent_error(message.channel_id, &error));
                     self.execution_tracker.complete_execution(message.channel_id);
                     self.rollout_manager.fail_attempt(&mut rollout, &error, &span_collector);
                     self.telemetry_store.persist_spans(&span_collector);
                     heartbeat_handle.abort();
-                telemetry::clear_active_collector();
+                    telemetry::clear_active_collector();
                     return DispatchResult::error(error);
                 }
             }
@@ -675,6 +687,9 @@ impl MessageDispatcher {
                     session.id, DbMessageRole::Assistant,
                     &format!("[Error] {}", error), None, None, None, None,
                 );
+                // Mark session as Failed so it doesn't stay stuck as Active
+                let _ = self.db.update_session_completion_status(session.id, CompletionStatus::Failed);
+                self.broadcast_session_complete(message.channel_id, session.id);
                 self.broadcaster.broadcast(GatewayEvent::agent_error(
                     message.channel_id,
                     &error,
@@ -941,34 +956,17 @@ impl MessageDispatcher {
 
         // Load API keys from database into ToolContext (per-session, no global env mutation)
         // In safe mode, skip loading API keys (discord/telegram/slack tokens come from channel settings)
-        let mut github_token_loaded = false;
         if !is_safe_mode {
             if let Ok(keys) = self.db.list_api_keys() {
                 log::debug!("[DISPATCH] Loading {} API keys from database into ToolContext", keys.len());
                 for key in keys {
-                    let key_id = ApiKeyId::from_str(&key.service_name).ok();
                     let preview = if key.api_key.len() > 8 { &key.api_key[..8] } else { &key.api_key };
                     log::debug!("[DISPATCH]   Loading key: {} (len={}, prefix={}...)", key.service_name, key.api_key.len(), preview);
-
-                    if key_id == Some(ApiKeyId::GithubToken) {
-                        github_token_loaded = true;
-                    }
                     tool_context = tool_context.with_api_key(&key.service_name, key.api_key.clone());
                 }
             }
         } else {
             log::debug!("[DISPATCH] Safe mode enabled — skipping API key loading");
-        }
-
-        // If GitHub token is loaded, query GitHub API to get authenticated user
-        if github_token_loaded {
-            if let Ok(github_user) = self.get_github_authenticated_user().await {
-                log::info!("[DISPATCH] GitHub authenticated as: {}", github_user);
-                tool_context.extra.insert(
-                    "github_user".to_string(),
-                    serde_json::json!(github_user),
-                );
-            }
         }
 
         // Load bot config from bot_settings for git commits etc.
@@ -1270,6 +1268,12 @@ impl MessageDispatcher {
                 ) {
                     log::error!("Failed to store error message in session: {}", db_err);
                 }
+
+                // Mark session as Failed so it doesn't stay stuck as Active with spinner
+                if let Err(status_err) = self.db.update_session_completion_status(session.id, CompletionStatus::Failed) {
+                    log::error!("[DISPATCH] Failed to mark session {} as Failed: {}", session.id, status_err);
+                }
+                self.broadcast_session_complete(message.channel_id, session.id);
 
                 // Broadcast error to frontend
                 self.broadcaster.broadcast(GatewayEvent::agent_error(
@@ -1846,23 +1850,18 @@ impl MessageDispatcher {
             tool_arguments,
         ));
 
-        // Save tool call to session
+        // Save tool call to session via async writer (non-blocking)
         let tool_call_content = format!(
             "🔧 **Tool Call:** `{}`\n```json\n{}\n```",
             tool_name,
             args_pretty
         );
-        if let Err(e) = self.db.add_session_message(
+        self.session_writer.send(
             session_id,
             DbMessageRole::ToolCall,
-            &tool_call_content,
-            None,
+            tool_call_content,
             Some(tool_name),
-            None,
-            None,
-        ) {
-            log::error!("Failed to save tool call to session: {}", e);
-        }
+        );
 
         // If define_tasks just replaced the queue, skip all remaining tool calls.
         if batch_state.define_tasks_replaced_queue {
@@ -2472,7 +2471,7 @@ impl MessageDispatcher {
             }
         }
 
-        // Save tool result to session (skip duplicate say_to_user to avoid polluting transcript)
+        // Save tool result to session via async writer (non-blocking)
         if !is_duplicate_say_to_user {
             let tool_result_content = format!(
                 "**{}:** {}\n{}",
@@ -2480,17 +2479,12 @@ impl MessageDispatcher {
                 tool_name,
                 result.content
             );
-            if let Err(e) = self.db.add_session_message(
+            self.session_writer.send(
                 session_id,
                 DbMessageRole::ToolResult,
-                &tool_result_content,
-                None,
+                tool_result_content,
                 Some(tool_name),
-                None,
-                None,
-            ) {
-                log::error!("Failed to save tool result to session: {}", e);
-            }
+            );
         }
 
         // Broadcast task list update after any orchestrator tool processing
@@ -2621,12 +2615,17 @@ impl MessageDispatcher {
         } else if orchestrator_complete {
             Ok((final_summary.to_string(), false))
         } else if tool_call_log.is_empty() {
+            // Mark session as Failed — hit max iterations with no work done
+            let _ = self.db.update_session_completion_status(session_id, CompletionStatus::Failed);
+            self.broadcast_session_complete(original_message.channel_id, session_id);
             Err(format!(
                 "Tool loop hit max iterations ({}) without completion",
                 max_tool_iterations
             ))
         } else {
-            // Max iterations with work done
+            // Max iterations with work done — mark as Failed (didn't complete normally)
+            let _ = self.db.update_session_completion_status(session_id, CompletionStatus::Failed);
+            self.broadcast_session_complete(original_message.channel_id, session_id);
             let summary = format!(
                 "[Session hit max iterations. Work completed before limit:]\n{}",
                 tool_call_log.join("\n")
@@ -2828,19 +2827,6 @@ impl MessageDispatcher {
                     }
                 } else {
                     log::warn!("[ORCHESTRATED_LOOP] Task {} not found for deletion", task_id);
-                }
-            }
-
-            // Check if session was marked as complete (defensive check against infinite loops)
-            // This catches cases where task_fully_completed was called but the loop didn't break
-            if let Ok(Some(status)) = self.db.get_session_completion_status(session_id) {
-                if status.should_stop() {
-                    log::info!("[ORCHESTRATED_LOOP] Session status is {:?}, stopping loop", status);
-                    // Mark orchestrator as complete to avoid misleading error messages
-                    if status == CompletionStatus::Complete {
-                        orchestrator_complete = true;
-                    }
-                    break;
                 }
             }
 
@@ -3435,18 +3421,6 @@ impl MessageDispatcher {
                 log::info!("[TEXT_ORCHESTRATED] Execution cancelled by user, stopping loop");
                 was_cancelled = true;
                 break;
-            }
-
-            // Check if session was marked as complete (defensive check against infinite loops)
-            if let Ok(Some(status)) = self.db.get_session_completion_status(session_id) {
-                if status.should_stop() {
-                    log::info!("[TEXT_ORCHESTRATED] Session status is {:?}, stopping loop", status);
-                    // Mark orchestrator as complete to avoid misleading error messages
-                    if status == CompletionStatus::Complete {
-                        orchestrator_complete = true;
-                    }
-                    break;
-                }
             }
 
             if iterations > max_tool_iterations {
@@ -4421,36 +4395,6 @@ impl MessageDispatcher {
         }
     }
 
-    /// Query GitHub API to get the authenticated user's login name
-    /// Uses `gh api user` command which respects the GH_TOKEN env var
-    async fn get_github_authenticated_user(&self) -> Result<String, String> {
-        use tokio::process::Command;
-
-        let mut cmd = Command::new("gh");
-        cmd.args(["api", "user", "--jq", ".login"]);
-
-        // Set GitHub token if available from stored API keys
-        if let Ok(Some(key)) = self.db.get_api_key("GITHUB_TOKEN") {
-            cmd.env("GH_TOKEN", key.api_key);
-        }
-
-        let output = cmd
-            .output()
-            .await
-            .map_err(|e| format!("Failed to execute gh CLI: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("gh api user failed: {}", stderr));
-        }
-
-        let login = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if login.is_empty() {
-            return Err("GitHub API returned empty login".to_string());
-        }
-
-        Ok(login)
-    }
 }
 
 #[cfg(test)]

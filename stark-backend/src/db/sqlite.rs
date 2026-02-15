@@ -45,8 +45,9 @@ impl Database {
 
         // Build pool with reasonable defaults for SQLite
         // SQLite handles concurrency via WAL, so we don't need many connections
+        // Each dispatch does ~20 sequential DB calls, so we need enough for concurrent dispatches
         let pool = Pool::builder()
-            .max_size(8)  // SQLite works best with limited connections
+            .max_size(16)
             .build(manager)
             .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))?;
 
@@ -60,9 +61,11 @@ impl Database {
     }
 
     /// Get a connection from the pool
+    /// Uses a 5-second timeout instead of panicking on pool exhaustion
     #[inline]
     pub fn conn(&self) -> DbConn {
-        self.pool.get().expect("Failed to get database connection from pool")
+        self.pool.get_timeout(std::time::Duration::from_secs(5))
+            .expect("Failed to get database connection from pool (timeout after 5s)")
     }
 
     /// Initialize all database tables and run migrations

@@ -1,6 +1,7 @@
 pub mod discord;
 pub mod dispatcher;
 pub mod safe_mode_rate_limiter;
+pub mod session_writer;
 pub mod slack;
 pub mod telegram;
 pub mod twitter;

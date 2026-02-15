@@ -66,14 +66,17 @@ impl EventBroadcaster {
             );
         }
 
-        // Log the full event payload for debugging
-        if let Ok(json) = serde_json::to_string_pretty(&event) {
-            log::debug!(
-                "[DATAGRAM] BROADCAST event '{}' to {} clients:\n{}",
-                event_name,
-                self.clients.len(),
-                json
-            );
+        // Log the full event payload for debugging (gate behind level check
+        // to avoid expensive serialization when debug logging is disabled)
+        if log::log_enabled!(log::Level::Debug) {
+            if let Ok(json) = serde_json::to_string_pretty(&event) {
+                log::debug!(
+                    "[DATAGRAM] BROADCAST event '{}' to {} clients:\n{}",
+                    event_name,
+                    self.clients.len(),
+                    json
+                );
+            }
         }
 
         for entry in self.clients.iter() {

@@ -489,6 +489,38 @@ impl Database {
         })
     }
 
+    /// Batch insert multiple session messages in a single transaction.
+    /// Much faster than individual inserts when saving tool call/result pairs.
+    pub fn add_session_messages_batch(
+        &self,
+        messages: &[(i64, MessageRole, String, Option<String>, Option<String>)],
+    ) -> SqliteResult<()> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn();
+        let tx = conn.unchecked_transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO session_messages (session_id, role, content, user_id, user_name, platform_message_id, tokens_used, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6)",
+            )?;
+            let now_str = Utc::now().to_rfc3339();
+            for (session_id, role, content, _user_id, user_name) in messages {
+                stmt.execute(rusqlite::params![
+                    session_id,
+                    role.as_str(),
+                    content,
+                    Option::<&str>::None,
+                    user_name.as_deref(),
+                    &now_str,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Get all messages for a session
     pub fn get_session_messages(&self, session_id: i64) -> SqliteResult<Vec<SessionMessage>> {
         let conn = self.conn();

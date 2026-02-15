@@ -12,6 +12,7 @@
 
 use crate::tools::builtin::cryptocurrency::network_lookup::get_all_network_identifiers;
 use crate::tools::builtin::cryptocurrency::token_lookup::get_all_token_symbols;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -180,15 +181,40 @@ impl ContextBank {
     }
 }
 
+// Pre-compiled regexes for scan_input — compiled once, used on every dispatch
+static ETH_ADDR_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"0x[a-fA-F0-9]{40}").unwrap());
+static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"https?://[^\s<>\[\]()]+[^\s<>\[\]().,;:!?]").unwrap());
+static GITHUB_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"github\.com/([^/\s]+)/([^/\s?#]+)").unwrap());
+static NUMBER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d+))?(k|m|b|mil|million|billion|bil|thousand)?\b").unwrap());
+
+/// Pre-compiled token/network matchers — built once from config data
+static TOKEN_MATCHERS: Lazy<Vec<(Regex, String, String)>> = Lazy::new(|| {
+    get_all_token_symbols()
+        .into_iter()
+        .filter_map(|(symbol, name)| {
+            let pattern = format!(r"(?i)\b{}\b", regex::escape(&symbol));
+            Regex::new(&pattern).ok().map(|re| (re, symbol, name))
+        })
+        .collect()
+});
+
+static NETWORK_MATCHERS: Lazy<Vec<(Regex, String, String)>> = Lazy::new(|| {
+    get_all_network_identifiers()
+        .into_iter()
+        .filter_map(|(identifier, name)| {
+            let pattern = format!(r"(?i)\b{}\b", regex::escape(&identifier));
+            Regex::new(&pattern).ok().map(|re| (re, identifier, name))
+        })
+        .collect()
+});
+
 /// Scan input text for key terms and return detected items
 pub fn scan_input(text: &str) -> Vec<ContextBankItem> {
     let mut items = Vec::new();
 
     // Scan for Ethereum addresses (0x followed by 40 hex chars)
-    let eth_addr_regex = Regex::new(r"0x[a-fA-F0-9]{40}").unwrap();
-    for cap in eth_addr_regex.find_iter(text) {
+    for cap in ETH_ADDR_RE.find_iter(text) {
         let addr = cap.as_str().to_string();
-        // Normalize to checksummed format (lowercase for now)
         items.push(ContextBankItem {
             value: addr.to_lowercase(),
             item_type: "eth_address".to_string(),
@@ -196,51 +222,34 @@ pub fn scan_input(text: &str) -> Vec<ContextBankItem> {
         });
     }
 
-    // Scan for token symbols from config
-    let token_symbols = get_all_token_symbols();
-
-    for (symbol, name) in token_symbols {
-        // Match as whole word (surrounded by non-alphanumeric or at start/end)
-        let pattern = format!(r"(?i)\b{}\b", regex::escape(&symbol));
-        if let Ok(re) = Regex::new(&pattern) {
-            if re.is_match(text) {
-                items.push(ContextBankItem {
-                    value: symbol.to_uppercase(),
-                    item_type: "token_symbol".to_string(),
-                    label: Some(name),
-                });
-            }
+    // Scan for token symbols from config (pre-compiled matchers)
+    for (re, symbol, name) in TOKEN_MATCHERS.iter() {
+        if re.is_match(text) {
+            items.push(ContextBankItem {
+                value: symbol.to_uppercase(),
+                item_type: "token_symbol".to_string(),
+                label: Some(name.clone()),
+            });
         }
     }
 
-    // Scan for network names from config
-    let network_identifiers = get_all_network_identifiers();
-
-    for (identifier, name) in network_identifiers {
-        // Match as whole word (case-insensitive)
-        let pattern = format!(r"(?i)\b{}\b", regex::escape(&identifier));
-        if let Ok(re) = Regex::new(&pattern) {
-            if re.is_match(text) {
-                items.push(ContextBankItem {
-                    value: identifier.to_lowercase(),
-                    item_type: "network".to_string(),
-                    label: Some(name),
-                });
-            }
+    // Scan for network names from config (pre-compiled matchers)
+    for (re, identifier, name) in NETWORK_MATCHERS.iter() {
+        if re.is_match(text) {
+            items.push(ContextBankItem {
+                value: identifier.to_lowercase(),
+                item_type: "network".to_string(),
+                label: Some(name.clone()),
+            });
         }
     }
 
     // Scan for URLs (especially GitHub URLs)
-    // This regex matches common URL patterns, excluding trailing punctuation
-    let url_regex = Regex::new(r"https?://[^\s<>\[\]()]+[^\s<>\[\]().,;:!?]").unwrap();
-    for cap in url_regex.find_iter(text) {
+    for cap in URL_RE.find_iter(text) {
         let url = cap.as_str().to_string();
 
-        // Check if it's a GitHub URL and extract repo info
         if url.contains("github.com") {
-            // Try to extract owner/repo from GitHub URL
-            let github_regex = Regex::new(r"github\.com/([^/\s]+)/([^/\s?#]+)").unwrap();
-            if let Some(caps) = github_regex.captures(&url) {
+            if let Some(caps) = GITHUB_RE.captures(&url) {
                 let owner = caps.get(1).map(|m| m.as_str()).unwrap_or("");
                 let repo = caps.get(2).map(|m| m.as_str()).unwrap_or("");
                 items.push(ContextBankItem {
@@ -265,10 +274,7 @@ pub fn scan_input(text: &str) -> Vec<ContextBankItem> {
     }
 
     // Scan for numeric values (integers, decimals, with optional commas and suffixes like k/m/b)
-    // Matches: 1, 100, 1000, 1,000, 10k, 1.5m, 10billion, etc.
-    // Excludes numbers that are part of hex addresses (handled above)
-    let number_regex = Regex::new(r"(?i)\b(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d+))?(k|m|b|mil|million|billion|bil|thousand)?\b").unwrap();
-    for cap in number_regex.captures_iter(text) {
+    for cap in NUMBER_RE.captures_iter(text) {
         let whole_part = cap[1].replace(',', "");
         let decimal_part = cap.get(2).map(|m| m.as_str());
         let suffix = cap.get(3).map(|m| m.as_str().to_lowercase());

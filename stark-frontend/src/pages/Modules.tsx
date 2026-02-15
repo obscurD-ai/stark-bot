@@ -285,16 +285,28 @@ export default function Modules() {
                         )
                       )}
                       {module.enabled ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={actionLoading !== null}
-                          isLoading={actionLoading === `${module.name}-disable`}
-                          onClick={() => performAction(module.name, 'disable')}
-                        >
-                          <Pause className="w-4 h-4 mr-1" />
-                          Disable
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={actionLoading !== null}
+                            isLoading={actionLoading === `${module.name}-restart`}
+                            onClick={() => performAction(module.name, 'restart')}
+                          >
+                            <RefreshCw className="w-4 h-4 mr-1" />
+                            Restart
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={actionLoading !== null}
+                            isLoading={actionLoading === `${module.name}-disable`}
+                            onClick={() => performAction(module.name, 'disable')}
+                          >
+                            <Pause className="w-4 h-4 mr-1" />
+                            Disable
+                          </Button>
+                        </>
                       ) : (
                         <Button
                           size="sm"

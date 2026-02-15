@@ -10,22 +10,57 @@ use crate::AppState;
 
 /// Kill the service process listening on a given port (if any).
 fn kill_service_on_port(port: u16) {
-    // Use lsof to find the PID listening on the port, then kill it
     let output = std::process::Command::new("lsof")
         .args(["-ti", &format!("tcp:{}", port)])
         .output();
     if let Ok(out) = output {
         let pids = String::from_utf8_lossy(&out.stdout);
+        let my_pid = std::process::id().to_string();
         for pid_str in pids.split_whitespace() {
-            if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                // Don't kill ourselves
-                let my_pid = std::process::id() as i32;
-                if pid != my_pid {
-                    log::info!("[MODULE] Killing service process PID {} on port {}", pid, port);
-                    unsafe { libc::kill(pid, libc::SIGTERM); }
-                }
+            let pid = pid_str.trim();
+            if !pid.is_empty() && pid != my_pid {
+                log::info!("[MODULE] Killing service process PID {} on port {}", pid, port);
+                let _ = std::process::Command::new("kill").arg(pid).output();
             }
         }
+    }
+}
+
+/// Start a module's service binary if not already running.
+fn start_module_service(module_name: &str, port: u16, db: &crate::db::Database) {
+    // Already running?
+    if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+        log::info!("[MODULE] {} already running on port {} — skipping start", module_name, port);
+        return;
+    }
+
+    let self_exe = std::env::current_exe().unwrap_or_default();
+    let exe_dir = self_exe.parent().unwrap_or(std::path::Path::new("."));
+
+    // Map module name to binary name
+    let binary_name = module_name.replace('_', "-") + "-service";
+    let exe_path = exe_dir.join(&binary_name);
+    if !exe_path.exists() {
+        log::warn!("[MODULE] Service binary not found: {} — cannot start", exe_path.display());
+        return;
+    }
+
+    let mut cmd = std::process::Command::new(&exe_path);
+    cmd.stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
+
+    // Pass API keys from database
+    if let Ok(Some(key)) = db.get_api_key("ALCHEMY_API_KEY") {
+        cmd.env("ALCHEMY_API_KEY", &key.api_key);
+    } else if let Ok(val) = std::env::var("ALCHEMY_API_KEY") {
+        if !val.is_empty() {
+            cmd.env("ALCHEMY_API_KEY", &val);
+        }
+    }
+
+    match cmd.spawn() {
+        Ok(_) => log::info!("[MODULE] Started {} (port {})", binary_name, port),
+        Err(e) => log::error!("[MODULE] Failed to start {}: {}", binary_name, e),
     }
 }
 
@@ -236,6 +271,8 @@ async fn module_action(
             match data.db.set_module_enabled(&name, true) {
                 Ok(true) => {
                     activate_module(&data, &name).await;
+                    // Start the module's service process if not already running
+                    start_module_service(&name, module.default_port(), &data.db);
                     HttpResponse::Ok().json(serde_json::json!({
                         "status": "enabled",
                         "message": format!("Module '{}' enabled.", name)
@@ -253,7 +290,7 @@ async fn module_action(
         "disable" => {
             deactivate_module(&data, &name).await;
 
-            // Disable module skill
+            // Disable module skill and kill the service process
             {
                 let registry = crate::modules::ModuleRegistry::new();
                 if let Some(module) = registry.get(&name) {
@@ -262,13 +299,15 @@ async fn module_action(
                             data.skill_registry.set_enabled(&metadata.name, false);
                         }
                     }
+                    // Kill the module's service process
+                    kill_service_on_port(module.default_port());
                 }
             }
 
             match data.db.set_module_enabled(&name, false) {
                 Ok(true) => HttpResponse::Ok().json(serde_json::json!({
                     "status": "disabled",
-                    "message": format!("Module '{}' deactivated and disabled.", name)
+                    "message": format!("Module '{}' deactivated, disabled, and service stopped.", name)
                 })),
                 Ok(false) => HttpResponse::NotFound().json(serde_json::json!({
                     "error": format!("Module '{}' is not installed", name)
@@ -279,8 +318,28 @@ async fn module_action(
             }
         }
 
+        "restart" => {
+            let registry = crate::modules::ModuleRegistry::new();
+            match registry.get(&name) {
+                Some(module) => {
+                    let port = module.default_port();
+                    kill_service_on_port(port);
+                    // Brief pause to let the port free up
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    start_module_service(&name, port, &data.db);
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "status": "restarted",
+                        "message": format!("Module '{}' service restarted on port {}.", name, port)
+                    }))
+                }
+                None => HttpResponse::NotFound().json(serde_json::json!({
+                    "error": format!("Unknown module: '{}'", name)
+                })),
+            }
+        }
+
         _ => HttpResponse::BadRequest().json(serde_json::json!({
-            "error": format!("Unknown action: '{}'. Use 'install', 'uninstall', 'enable', or 'disable'.", action)
+            "error": format!("Unknown action: '{}'. Use 'install', 'uninstall', 'enable', 'disable', or 'restart'.", action)
         })),
     }
 }

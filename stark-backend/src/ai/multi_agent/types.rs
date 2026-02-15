@@ -476,6 +476,7 @@ impl AgentSubtype {
                         groups.push(ToolGroup::Messaging); // agent_send
                         groups.push(ToolGroup::Social);    // moltx, scheduling tools
                         groups.push(ToolGroup::Memory);    // memory_search, memory_read
+                        groups.push(ToolGroup::Exec);      // exec command (curl, etc.)
                     }
                     AgentSubtype::None => unreachable!(), // Handled above
                 }

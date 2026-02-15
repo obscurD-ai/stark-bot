@@ -10,6 +10,7 @@ pub mod dynamic_tool;
 pub mod loader;
 pub mod manifest;
 pub mod registry;
+pub mod social_monitor;
 pub mod wallet_monitor;
 
 use async_trait::async_trait;

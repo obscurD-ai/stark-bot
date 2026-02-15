@@ -309,10 +309,15 @@ impl Orchestrator {
 
         summary.push_str("## Current Context\n\n");
         summary.push_str(&format!("**Request**: {}\n\n", self.context.original_request));
-        summary.push_str(&format!("**Subtype**: {} {}\n\n",
-            self.context.subtype.emoji(),
-            self.context.subtype.label()
-        ));
+        if self.context.subtype.is_selected() {
+            summary.push_str(&format!(
+                "**Subtype**: {} {} (active — do NOT call `set_agent_subtype`, just proceed with tools)\n\n",
+                self.context.subtype.emoji(),
+                self.context.subtype.label()
+            ));
+        } else {
+            summary.push_str("**Subtype**: None — call `set_agent_subtype` first based on the user's request\n\n");
+        }
 
         // Add selected network - this is the network the user has selected in the UI
         // The agent should use this for all web3 operations unless the user explicitly specifies otherwise

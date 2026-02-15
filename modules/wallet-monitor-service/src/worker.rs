@@ -112,6 +112,9 @@ async fn wallet_monitor_tick(
     Ok(())
 }
 
+/// How many blocks to look back on first run (~2 hours on mainnet, ~10 min on Base).
+const FIRST_RUN_LOOKBACK_BLOCKS: i64 = 500;
+
 async fn process_wallet(
     db: &Db,
     client: &reqwest::Client,
@@ -119,7 +122,19 @@ async fn process_wallet(
     entry: &WatchlistEntry,
     price_cache: &Arc<Mutex<PriceCache>>,
 ) -> Result<(usize, Vec<LargeTradeAlert>), String> {
-    let from_block = entry.last_checked_block.map(|b| b + 1);
+    let from_block = match entry.last_checked_block {
+        Some(b) => Some(b + 1),
+        None => {
+            // First run: start from a recent block instead of scanning full history
+            let latest = alchemy::get_block_number(client, &entry.chain, api_key).await?;
+            let start = (latest - FIRST_RUN_LOOKBACK_BLOCKS).max(0);
+            log::info!(
+                "[WALLET_MONITOR] First run for {} on {}: starting from block {} (latest: {})",
+                entry.address, entry.chain, start, latest
+            );
+            Some(start)
+        }
+    };
 
     let (outgoing, incoming) = tokio::join!(
         alchemy::get_asset_transfers(client, &entry.chain, api_key, &entry.address, from_block, "from"),

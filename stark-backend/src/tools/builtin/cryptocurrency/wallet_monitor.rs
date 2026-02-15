@@ -471,8 +471,8 @@ fn format_activity_list(entries: &[ActivityEntry], title: &str) -> ToolResult {
                     asset,
                     usd,
                     large,
-                    &e.from_address[..10],
-                    &e.to_address[..10],
+                    &e.from_address[..e.from_address.len().min(10)],
+                    &e.to_address[..e.to_address.len().min(10)],
                     e.chain,
                     e.tx_hash
                 ));

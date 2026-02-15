@@ -2,6 +2,7 @@
 
 use super::discord_tipping::DiscordTippingModule;
 use super::loader;
+use super::social_monitor::SocialMonitorModule;
 use super::wallet_monitor::WalletMonitorModule;
 use super::Module;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ impl ModuleRegistry {
         // Built-in (compiled) modules
         reg.register(Box::new(WalletMonitorModule));
         reg.register(Box::new(DiscordTippingModule));
+        reg.register(Box::new(SocialMonitorModule));
 
         // Dynamic modules from ~/.starkbot/modules/
         let dynamic = loader::load_dynamic_modules();

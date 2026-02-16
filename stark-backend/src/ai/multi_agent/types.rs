@@ -280,6 +280,7 @@ impl TaskQueue {
         "add_task",
         "ask_user",
         "spawn_subagent",
+        "spawn_subagents",
         "subagent_status",
         "use_skill",
         "manage_skills",
@@ -518,7 +519,7 @@ mod task_queue_tests {
 #[serde(rename_all = "snake_case")]
 pub enum AgentSubtype {
     /// Director - orchestrates tasks by spawning and coordinating sub-agents
-    /// All chats start as Director so spawn_subagent is immediately available
+    /// All chats start as Director so spawn_subagents is immediately available
     #[default]
     Director,
     /// No subtype selected yet - agent MUST choose one before using other tools

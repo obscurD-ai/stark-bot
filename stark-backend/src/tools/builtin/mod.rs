@@ -31,7 +31,7 @@ pub use core::{
     AddTaskTool, DefineTasksTool, AgentSendTool, ApiKeysCheckTool, AskUserTool, HeartbeatConfigTool,
     ImportIdentityTool, InstallApiKeyTool, ManageModulesTool, ManageSkillsTool, MindmapManageTool,
     ReadSkillTool, RegisterNewIdentityTool, WorkstreamTool, ModifySoulTool, SayToUserTool,
-    SetAgentSubtypeTool, SubagentStatusTool, SubagentTool, TaskFullyCompletedTool,
+    SetAgentSubtypeTool, SubagentStatusTool, SpawnSubagentsTool, TaskFullyCompletedTool,
     // Meta tools (self-management)
     CloudBackupTool, ManageGatewayChannelsTool, ReadOperatingModeTool, ReadRecentTransactionsTool,
     SetThemeAccentTool,

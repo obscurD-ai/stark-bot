@@ -50,6 +50,8 @@ pub struct SubAgentManager {
     channel_semaphores: DashMap<i64, Arc<Semaphore>>,
     /// Active sub-agents indexed by ID (Arc-wrapped for sharing with spawned tasks)
     active_agents: Arc<DashMap<String, SubAgentHandle>>,
+    /// Last activity timestamp per subagent (updated after each tool call result)
+    last_activity: Arc<DashMap<String, chrono::DateTime<chrono::Utc>>>,
     /// Wallet provider for x402 payments and transaction signing
     /// Encapsulates both Standard mode (EnvWalletProvider with raw private key)
     /// and Flash mode (FlashWalletProvider with Privy proxy)
@@ -83,6 +85,7 @@ impl SubAgentManager {
             total_semaphore: Arc::new(Semaphore::new(config.max_total_concurrent)),
             channel_semaphores: DashMap::new(),
             active_agents: Arc::new(DashMap::new()),
+            last_activity: Arc::new(DashMap::new()),
             config,
             wallet_provider,
         }
@@ -155,6 +158,7 @@ impl SubAgentManager {
         let channel_sem = self.get_channel_semaphore(context.parent_channel_id);
         let wallet_provider = self.wallet_provider.clone();
         let active_agents = self.active_agents.clone();
+        let last_activity = self.last_activity.clone();
         let subagent_id_for_cleanup = subagent_id.clone();
 
         // Spawn the execution task
@@ -182,6 +186,7 @@ impl SubAgentManager {
                 tool_registry.clone(),
                 context.clone(),
                 wallet_provider,
+                last_activity.clone(),
             );
 
             let timeout_duration = Duration::from_secs(context.timeout_secs);
@@ -245,13 +250,14 @@ impl SubAgentManager {
                 final_context.status
             );
 
-            // Clean up from active_agents DashMap
+            // Clean up from active_agents and last_activity DashMaps
             if active_agents.remove(&subagent_id_for_cleanup).is_some() {
                 log::debug!(
                     "[SUBAGENT_MANAGER] Cleaned up subagent {} from active_agents",
                     subagent_id_for_cleanup
                 );
             }
+            last_activity.remove(&subagent_id_for_cleanup);
         });
 
         Ok(subagent_id)
@@ -264,6 +270,7 @@ impl SubAgentManager {
         tool_registry: Arc<ToolRegistry>,
         mut context: SubAgentContext,
         wallet_provider: Option<Arc<dyn crate::wallet::WalletProvider>>,
+        last_activity: Arc<DashMap<String, chrono::DateTime<chrono::Utc>>>,
     ) -> Result<String, String> {
         log::info!("[SUBAGENT] Starting execution for {}", context.id);
 
@@ -412,7 +419,7 @@ impl SubAgentManager {
             tool_registry.get_tool_definitions(&tool_config)
         };
 
-        // Filter out SubAgent tools — sub-agents don't get spawn_subagent
+        // Filter out SubAgent tools — sub-agents don't get spawn_subagents
         // (recursion is controlled by which subtypes include the SubAgent tool group)
         let tools: Vec<ToolDefinition> = tools
             .into_iter()
@@ -541,6 +548,9 @@ impl SubAgentManager {
                     &content_preview,
                     session.id,
                 ));
+
+                // Update last activity timestamp for heartbeat tracking
+                last_activity.insert(context.id.clone(), chrono::Utc::now());
 
                 // Persist tool_result to session
                 let status_label = if result.success { "Result" } else { "Error" };
@@ -871,6 +881,11 @@ impl SubAgentManager {
         // store channel_id in the handle. The per-channel semaphore
         // handles the actual concurrency limiting.
         self.active_agents.len()
+    }
+
+    /// Get the last activity timestamp for a sub-agent (updated after each tool call)
+    pub fn get_last_activity(&self, subagent_id: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.last_activity.get(subagent_id).map(|v| *v)
     }
 }
 

@@ -46,7 +46,7 @@ pub use modify_kanban::WorkstreamTool;
 pub use modify_soul::ModifySoulTool;
 pub use say_to_user::SayToUserTool;
 pub use set_agent_subtype::SetAgentSubtypeTool;
-pub use subagent::{SubagentStatusTool, SubagentTool};
+pub use subagent::{SubagentStatusTool, SpawnSubagentsTool};
 pub use task_complete::TaskFullyCompletedTool;
 
 // Meta tools (self-management)

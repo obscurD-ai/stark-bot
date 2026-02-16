@@ -365,6 +365,46 @@ async fn export_subtypes(
     }
 }
 
+/// Export a single agent subtype as RON (wrapped in a vec for import compatibility).
+async fn export_single_subtype(
+    data: web::Data<AppState>,
+    req: HttpRequest,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(resp) = validate_session_from_request(&data, &req) {
+        return resp;
+    }
+
+    let key = path.into_inner();
+    match data.db.get_agent_subtype(&key) {
+        Ok(Some(subtype)) => {
+            let pretty = ron::ser::PrettyConfig::new()
+                .depth_limit(3)
+                .separate_tuple_members(true)
+                .enumerate_arrays(false);
+            let wrapped = vec![subtype];
+            match ron::ser::to_string_pretty(&wrapped, pretty) {
+                Ok(ron_str) => HttpResponse::Ok()
+                    .content_type("application/ron")
+                    .insert_header(("Content-Disposition", format!("attachment; filename=\"{}.ron\"", key)))
+                    .body(ron_str),
+                Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({
+                    "error": format!("Failed to serialize: {}", e)
+                })),
+            }
+        }
+        Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
+            "error": format!("Agent subtype '{}' not found", key)
+        })),
+        Err(e) => {
+            log::error!("Failed to export agent subtype '{}': {}", key, e);
+            HttpResponse::InternalServerError().json(serde_json::json!({
+                "error": format!("Database error: {}", e)
+            }))
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct ImportRequest {
     ron: String,

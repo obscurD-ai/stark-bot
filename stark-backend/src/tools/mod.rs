@@ -20,7 +20,7 @@ use std::sync::Arc;
 /// Register all built-in tools to a registry
 fn register_all_tools(registry: &mut ToolRegistry) {
     // System tools (always available)
-    registry.register(Arc::new(builtin::SubagentTool::new()));
+    registry.register(Arc::new(builtin::SpawnSubagentsTool::new()));
     registry.register(Arc::new(builtin::SubagentStatusTool::new()));
     registry.register(Arc::new(builtin::SetAgentSubtypeTool::new()));
     registry.register(Arc::new(builtin::AskUserTool::new()));

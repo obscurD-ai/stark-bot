@@ -143,6 +143,7 @@ impl Orchestrator {
         include_str!("prompts/task_planner.md")
             .replace("{original_request}", &self.context.original_request)
             .replace("{available_skills}", skills_text)
+            .replace("{available_subtypes}", &Self::generate_subtypes_table())
     }
 
     /// Get the planner prompt using a resource manager for versioned prompt resolution.
@@ -154,6 +155,7 @@ impl Orchestrator {
         resource_manager.resolve_prompt("system_prompt.task_planner")
             .replace("{original_request}", &self.context.original_request)
             .replace("{available_skills}", skills_text)
+            .replace("{available_subtypes}", &Self::generate_subtypes_table())
     }
 
     /// Get the system prompt, optionally using a resource manager for versioned prompts.
@@ -221,7 +223,7 @@ impl Orchestrator {
                 String::new()
             };
 
-            // Detect "Spawn <subtype> sub-agent: <task>" and inject spawn_subagent instruction
+            // Detect "Spawn <subtype> sub-agent: <task>" and inject spawn_subagents instruction
             let spawn_instruction = if let Some(start) = task.description.find("Spawn ") {
                 let rest = &task.description[start + 6..];
                 // Extract subtype (word before " sub-agent")
@@ -241,7 +243,7 @@ impl Orchestrator {
                         spawn_task.to_string()
                     };
                     format!(
-                        "\n\n**⚡ ACTION REQUIRED:** Call `spawn_subagent(task=\"{}\", label=\"{}\", wait=true)` immediately. Do NOT call set_agent_subtype or any other tool first.",
+                        "\n\n**⚡ ACTION REQUIRED:** Call `spawn_subagents(agents=[{{\"task\": \"{}\", \"label\": \"{}\"}}])` immediately. Do NOT call set_agent_subtype or any other tool first.",
                         task_text.replace('"', "\\\""),
                         subtype,
                     )
@@ -295,12 +297,39 @@ impl Orchestrator {
         prompt
     }
 
+    /// Generate a markdown table of available sub-agent domains from the registry.
+    ///
+    /// Skips subtypes with empty `skill_tags` (e.g., Director, which is an orchestrator
+    /// and not a delegatable domain). This keeps the table focused on domains that
+    /// sub-agents can actually be assigned to.
+    fn generate_subtypes_table() -> String {
+        use super::types;
+        let configs = types::all_subtype_configs();
+        let domain_configs: Vec<_> = configs.iter()
+            .filter(|c| !c.skill_tags.is_empty())
+            .collect();
+
+        if domain_configs.is_empty() {
+            return "| Domain | Description |\n|--------|-------------|".to_string();
+        }
+
+        let mut table = String::from("| Domain | Description |\n|--------|-------------|\n");
+        for c in &domain_configs {
+            table.push_str(&format!(
+                "| `{}` | {} |\n",
+                c.key, c.description
+            ));
+        }
+        table
+    }
+
     /// Generate the toolbox selection prompt dynamically from the registry.
     fn toolbox_select_prompt() -> String {
         use super::types;
         let configs = types::all_subtype_configs();
         if configs.is_empty() {
-            return include_str!("prompts/toolbox_select.md").to_string();
+            return include_str!("prompts/toolbox_select.md")
+                .replace("{available_subtypes}", &Self::generate_subtypes_table());
         }
 
         let mut prompt = String::from("## 🚨 FIRST THING: Select Your Toolbox 🚨\n\n");
@@ -308,6 +337,9 @@ impl Orchestrator {
         prompt.push_str("| User Wants | Toolbox | Call |\n");
         prompt.push_str("|------------|---------|------|\n");
         for c in &configs {
+            if c.skill_tags.is_empty() {
+                continue; // Skip orchestrator-only subtypes (e.g., Director)
+            }
             prompt.push_str(&format!(
                 "| {} | `{}` | `set_agent_subtype(subtype=\"{}\")` |\n",
                 c.description, c.key, c.key

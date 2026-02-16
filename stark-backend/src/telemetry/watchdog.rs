@@ -39,6 +39,7 @@ impl Default for WatchdogConfig {
         tool_overrides.insert("exec".to_string(), 300);
         tool_overrides.insert("x402_fetch".to_string(), 120);
         tool_overrides.insert("deploy".to_string(), 600);
+        tool_overrides.insert("spawn_subagents".to_string(), 3600);
 
         Self {
             tool_timeout_secs: 60,

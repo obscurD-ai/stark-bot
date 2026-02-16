@@ -55,13 +55,6 @@ struct CloudBackupParams {
     action: String,
 }
 
-/// Derive wallet address from private key
-fn get_wallet_address(private_key: &str) -> Option<String> {
-    use ethers::signers::{LocalWallet, Signer};
-    let wallet: LocalWallet = private_key.parse().ok()?;
-    Some(format!("{:?}", wallet.address()))
-}
-
 #[async_trait]
 impl Tool for CloudBackupTool {
     fn definition(&self) -> ToolDefinition {
@@ -79,37 +72,22 @@ impl Tool for CloudBackupTool {
             None => return ToolResult::error("Database not available"),
         };
 
+        // Wallet provider is always set when a wallet is configured (Standard=EnvWalletProvider, Flash=FlashWalletProvider)
+        let wallet_provider = match &context.wallet_provider {
+            Some(wp) => wp,
+            None => {
+                return ToolResult::success(
+                    "No wallet configured. Cloud backup is not available.",
+                )
+                .with_metadata(json!({ "configured": false }));
+            }
+        };
+        let wallet_address = wallet_provider.get_address();
+
         match params.action.as_str() {
             "status" => {
-                // Read last backup record from keystore_state table
                 match db.get_bot_settings() {
                     Ok(_settings) => {
-                        // We don't have a direct "get last backup" method,
-                        // but we can check the keystore state via wallet address
-                        let private_key = match std::env::var("BURNER_WALLET_BOT_PRIVATE_KEY") {
-                            Ok(pk) => pk,
-                            Err(_) => {
-                                return ToolResult::success(
-                                    "Backup status: No wallet configured. Cloud backup is not available.",
-                                )
-                                .with_metadata(json!({ "configured": false }));
-                            }
-                        };
-
-                        let wallet_address =
-                            if let Some(ref wp) = context.wallet_provider {
-                                wp.get_address()
-                            } else {
-                                match get_wallet_address(&private_key) {
-                                    Some(addr) => addr,
-                                    None => {
-                                        return ToolResult::error(
-                                            "Failed to derive wallet address",
-                                        )
-                                    }
-                                }
-                            };
-
                         ToolResult::success(format!(
                             "Backup status:\n  Wallet: {}\n  Cloud backup is configured and available.\n  Use action 'backup' to trigger a new backup.",
                             wallet_address
@@ -124,28 +102,15 @@ impl Tool for CloudBackupTool {
             }
 
             "backup" => {
-                // Get the private key for ECIES encryption
-                let private_key = match std::env::var("BURNER_WALLET_BOT_PRIVATE_KEY") {
-                    Ok(pk) => pk,
-                    Err(_) => {
-                        return ToolResult::error(
-                            "Burner wallet not configured. Set BURNER_WALLET_BOT_PRIVATE_KEY to enable cloud backup.",
-                        );
+                // Get ECIES encryption key from wallet provider
+                let private_key = match wallet_provider.get_encryption_key().await {
+                    Ok(k) => k,
+                    Err(e) => {
+                        return ToolResult::error(format!(
+                            "Failed to get encryption key: {}", e
+                        ));
                     }
                 };
-
-                // Get wallet address — prefer wallet provider (correct in Flash mode)
-                let wallet_address =
-                    if let Some(ref wp) = context.wallet_provider {
-                        wp.get_address()
-                    } else {
-                        match get_wallet_address(&private_key) {
-                            Some(addr) => addr,
-                            None => {
-                                return ToolResult::error("Failed to derive wallet address");
-                            }
-                        }
-                    };
 
                 // Collect all backup data
                 let backup =
@@ -173,7 +138,7 @@ impl Tool for CloudBackupTool {
                     }
                 };
 
-                // Encrypt with ECIES
+                // Encrypt with ECIES using the raw private key (NOT wallet provider — this is encryption, not signing)
                 let encrypted_data =
                     match crate::backup::encrypt_with_private_key(&private_key, &backup_json) {
                         Ok(data) => data,
@@ -182,16 +147,10 @@ impl Tool for CloudBackupTool {
                         }
                     };
 
-                // Upload to keystore (use wallet provider for SIWE auth if available)
-                let store_result = if let Some(ref wp) = context.wallet_provider {
-                    KEYSTORE_CLIENT
-                        .store_keys_with_provider(wp, &encrypted_data, item_count)
-                        .await
-                } else {
-                    KEYSTORE_CLIENT
-                        .store_keys(&private_key, &encrypted_data, item_count)
-                        .await
-                };
+                // Upload to keystore — use wallet provider for SIWE auth (works in both modes)
+                let store_result = KEYSTORE_CLIENT
+                    .store_keys_with_provider(wallet_provider, &encrypted_data, item_count)
+                    .await;
 
                 match store_result {
                     Ok(resp) if resp.success => {

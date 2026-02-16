@@ -93,41 +93,14 @@ pub struct AppState {
 /// 2. Local database appears fresh (no API keys, no mind nodes beyond trunk)
 ///
 /// Retry logic: 3 attempts with exponential backoff (2s, 4s, 8s)
-async fn auto_retrieve_from_keystore(db: &std::sync::Arc<db::Database>, private_key: &str) {
-    auto_retrieve_from_keystore_with_retry(db, private_key, None).await;
-}
-
-/// Auto-retrieve with a wallet provider for keystore auth (Flash/Privy mode).
-/// The private_key is still used for ECIES decryption; the wallet provider is used
-/// for SIWE auth so the keystore sees the correct (Privy) wallet address.
-async fn auto_retrieve_from_keystore_with_provider(
+async fn auto_retrieve_from_keystore(
     db: &std::sync::Arc<db::Database>,
-    private_key: &str,
     wallet_provider: &std::sync::Arc<dyn wallet::WalletProvider>,
-) {
-    auto_retrieve_from_keystore_with_retry(db, private_key, Some(wallet_provider.clone())).await;
-}
-
-async fn auto_retrieve_from_keystore_with_retry(
-    db: &std::sync::Arc<db::Database>,
-    private_key: &str,
-    wallet_provider: Option<std::sync::Arc<dyn wallet::WalletProvider>>,
 ) {
     const MAX_RETRIES: u32 = 3;
     const INITIAL_BACKOFF_SECS: u64 = 2;
 
-    // Get wallet address - prefer wallet provider (correct in Flash/Privy mode)
-    let wallet_address = if let Some(ref wp) = wallet_provider {
-        wp.get_address().to_lowercase()
-    } else {
-        match keystore_client::get_wallet_address(private_key) {
-            Ok(addr) => addr.to_lowercase(),
-            Err(e) => {
-                log::warn!("[Keystore] Failed to get wallet address: {}", e);
-                return;
-            }
-        }
-    };
+    let wallet_address = wallet_provider.get_address().to_lowercase();
 
     // Check if we've already done auto-retrieval for this wallet
     match db.has_keystore_auto_retrieved(&wallet_address) {
@@ -176,17 +149,30 @@ async fn auto_retrieve_from_keystore_with_retry(
             tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
         }
 
-        let get_result = if let Some(ref wp) = wallet_provider {
-            keystore_client::KEYSTORE_CLIENT.get_keys_with_provider(wp).await
-        } else {
-            keystore_client::KEYSTORE_CLIENT.get_keys(private_key).await
-        };
+        let get_result = keystore_client::KEYSTORE_CLIENT
+            .get_keys_with_provider(wallet_provider)
+            .await;
         match get_result {
             Ok(resp) => {
                 if resp.success {
                     // Successfully got backup, restore it
                     if let Some(encrypted_data) = resp.encrypted_data {
-                        match restore_backup_data(db, private_key, &encrypted_data).await {
+                        let encryption_key = match wallet_provider.get_encryption_key().await {
+                            Ok(k) => k,
+                            Err(e) => {
+                                log::error!("[Keystore] Failed to get encryption key: {}", e);
+                                let _ = db.record_auto_sync_result(
+                                    &wallet_address,
+                                    "error",
+                                    &format!("Failed to get encryption key: {}", e),
+                                    None,
+                                    None,
+                                );
+                                let _ = db.mark_keystore_auto_retrieved(&wallet_address);
+                                return;
+                            }
+                        };
+                        match restore_backup_data(db, &encryption_key, &encrypted_data).await {
                             Ok((key_count, node_count)) => {
                                 log::info!("[Keystore] Auto-sync restored {} keys, {} nodes", key_count, node_count);
                                 let _ = db.record_auto_sync_result(
@@ -1087,26 +1073,8 @@ async fn main() -> std::io::Result<()> {
         None
     };
 
-    // Flash mode: derive a deterministic backup key from the Flash wallet signature
-    // This key is used ONLY for ECIES encryption/decryption of backup data.
-    // Keystore auth (SIWE) and x402 payments use the actual Privy wallet provider.
-    if is_flash_mode {
-        if let Some(ref wp) = wallet_provider {
-            match wp.sign_message(b"starkbot-backup-key-v1").await {
-                Ok(sig) => {
-                    let sig_bytes = sig.to_vec();
-                    let derived_key = ethers::utils::keccak256(&sig_bytes);
-                    config.burner_wallet_private_key = Some(hex::encode(derived_key));
-                    log::info!("Flash mode: derived backup encryption key from wallet signature");
-
-                    // Auto-retrieval deferred to background task below
-                }
-                Err(e) => {
-                    log::error!("Flash mode: failed to derive backup key: {}. Cloud backup will be unavailable.", e);
-                }
-            }
-        }
-    }
+    // Flash mode: ECIES encryption key is now derived on-demand via
+    // wallet_provider.get_encryption_key() — no startup derivation needed.
 
     // Initialize Gateway with tool registry, wallet provider, and tx_queue for channels
     log::info!("Initializing Gateway");
@@ -1180,16 +1148,10 @@ async fn main() -> std::io::Result<()> {
         let db_bg = db.clone();
         let gateway_bg = gateway.clone();
         let wallet_provider_bg = wallet_provider.clone();
-        let burner_key = config.burner_wallet_private_key.clone();
-        let is_flash = is_flash_mode;
         tokio::spawn(async move {
-            // Keystore auto-retrieve (standard or flash mode)
-            if is_flash {
-                if let (Some(pk), Some(wp)) = (&burner_key, &wallet_provider_bg) {
-                    auto_retrieve_from_keystore_with_provider(&db_bg, pk, wp).await;
-                }
-            } else if let Some(ref pk) = burner_key {
-                auto_retrieve_from_keystore(&db_bg, pk).await;
+            // Keystore auto-retrieve (works in both Standard and Flash mode via wallet provider)
+            if let Some(ref wp) = wallet_provider_bg {
+                auto_retrieve_from_keystore(&db_bg, wp).await;
             }
             // Start enabled channels (after keystore so restored channels are available)
             log::info!("Starting enabled channels (background)");

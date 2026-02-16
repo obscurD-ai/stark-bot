@@ -672,9 +672,9 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         return resp;
     }
 
-    // Get burner wallet private key from config
-    let private_key = match &state.config.burner_wallet_private_key {
-        Some(pk) => pk.clone(),
+    // Wallet provider is the source of truth (Standard=EnvWalletProvider, Flash=FlashWalletProvider)
+    let wallet_provider = match &state.wallet_provider {
+        Some(wp) => wp.clone(),
         None => {
             return HttpResponse::BadRequest().json(BackupResponse {
                 success: false,
@@ -692,37 +692,34 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
                 has_soul: None,
                 has_identity: None,
                 message: None,
-                error: Some("Burner wallet not configured".to_string()),
+                error: Some("No wallet configured".to_string()),
             });
         }
     };
+    let wallet_address = wallet_provider.get_address();
 
-    // Get wallet address - prefer wallet provider (correct in Flash/Privy mode)
-    let wallet_address = if let Some(ref wp) = state.wallet_provider {
-        wp.get_address()
-    } else {
-        match get_wallet_address(&private_key) {
-            Some(addr) => addr,
-            None => {
-                return HttpResponse::InternalServerError().json(BackupResponse {
-                    success: false,
-                    key_count: None,
-                    node_count: None,
-                    connection_count: None,
-                    cron_job_count: None,
-                    channel_count: None,
-                    channel_setting_count: None,
-                    discord_registration_count: None,
-                    skill_count: None,
-                    agent_settings_count: None,
-                    has_settings: None,
-                    has_heartbeat: None,
-                    has_soul: None,
+    // Get ECIES encryption key from wallet provider
+    let private_key = match wallet_provider.get_encryption_key().await {
+        Ok(k) => k,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(BackupResponse {
+                success: false,
+                key_count: None,
+                node_count: None,
+                connection_count: None,
+                cron_job_count: None,
+                channel_count: None,
+                channel_setting_count: None,
+                discord_registration_count: None,
+                skill_count: None,
+                agent_settings_count: None,
+                has_settings: None,
+                has_heartbeat: None,
+                has_soul: None,
                 has_identity: None,
-                    message: None,
-                    error: Some("Failed to derive wallet address".to_string()),
-                });
-            }
+                message: None,
+                error: Some(format!("Failed to get encryption key: {}", e)),
+            });
         }
     };
 
@@ -817,13 +814,10 @@ async fn backup_to_cloud(state: web::Data<AppState>, req: HttpRequest) -> impl R
         }
     };
 
-    // Upload to keystore API (with SIWE authentication)
-    // In Flash mode, use wallet provider for auth/x402 (Privy wallet has the STARKBOT tokens)
-    let store_result = if let Some(ref wp) = state.wallet_provider {
-        KEYSTORE_CLIENT.store_keys_with_provider(wp, &encrypted_data, item_count).await
-    } else {
-        KEYSTORE_CLIENT.store_keys(&private_key, &encrypted_data, item_count).await
-    };
+    // Upload to keystore API — use wallet provider for SIWE auth (works in both modes)
+    let store_result = KEYSTORE_CLIENT
+        .store_keys_with_provider(&wallet_provider, &encrypted_data, item_count)
+        .await;
     match store_result {
         Ok(resp) if resp.success => {
             // Record backup in local state
@@ -919,9 +913,9 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
         return resp;
     }
 
-    // Get burner wallet private key from config
-    let private_key = match &state.config.burner_wallet_private_key {
-        Some(pk) => pk.clone(),
+    // Wallet provider is the source of truth (Standard=EnvWalletProvider, Flash=FlashWalletProvider)
+    let wallet_provider = match &state.wallet_provider {
+        Some(wp) => wp.clone(),
         None => {
             return HttpResponse::BadRequest().json(BackupResponse {
                 success: false,
@@ -939,18 +933,40 @@ async fn restore_from_cloud(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_soul: None,
                 has_identity: None,
                 message: None,
-                error: Some("Burner wallet not configured".to_string()),
+                error: Some("No wallet configured".to_string()),
             });
         }
     };
 
-    // Fetch from keystore API (with SIWE authentication)
-    // In Flash mode, use wallet provider for auth (Privy wallet)
-    let keystore_result = if let Some(ref wp) = state.wallet_provider {
-        KEYSTORE_CLIENT.get_keys_with_provider(wp).await
-    } else {
-        KEYSTORE_CLIENT.get_keys(&private_key).await
+    // Get ECIES decryption key from wallet provider
+    let private_key = match wallet_provider.get_encryption_key().await {
+        Ok(k) => k,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(BackupResponse {
+                success: false,
+                key_count: None,
+                node_count: None,
+                connection_count: None,
+                cron_job_count: None,
+                channel_count: None,
+                channel_setting_count: None,
+                discord_registration_count: None,
+                skill_count: None,
+                agent_settings_count: None,
+                has_settings: None,
+                has_heartbeat: None,
+                has_soul: None,
+                has_identity: None,
+                message: None,
+                error: Some(format!("Failed to get encryption key: {}", e)),
+            });
+        }
     };
+
+    // Fetch from keystore API — use wallet provider for SIWE auth (works in both modes)
+    let keystore_result = KEYSTORE_CLIENT
+        .get_keys_with_provider(&wallet_provider)
+        .await;
     let keystore_resp = match keystore_result {
         Ok(resp) => resp,
         Err(e) => {
@@ -1738,9 +1754,9 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
         return resp;
     }
 
-    // Get burner wallet private key from config
-    let private_key = match &state.config.burner_wallet_private_key {
-        Some(pk) => pk.clone(),
+    // Wallet provider is the source of truth (Standard=EnvWalletProvider, Flash=FlashWalletProvider)
+    let wallet_provider = match &state.wallet_provider {
+        Some(wp) => wp.clone(),
         None => {
             return HttpResponse::BadRequest().json(PreviewKeysResponse {
                 success: false,
@@ -1760,18 +1776,42 @@ async fn preview_cloud_keys(state: web::Data<AppState>, req: HttpRequest) -> imp
                 has_identity: None,
                 backup_version: None,
                 message: None,
-                error: Some("Burner wallet not configured".to_string()),
+                error: Some("No wallet configured".to_string()),
             });
         }
     };
 
-    // Fetch from keystore API (with SIWE authentication)
-    // In Flash mode, use wallet provider for auth (Privy wallet)
-    let keystore_result = if let Some(ref wp) = state.wallet_provider {
-        KEYSTORE_CLIENT.get_keys_with_provider(wp).await
-    } else {
-        KEYSTORE_CLIENT.get_keys(&private_key).await
+    // Get ECIES decryption key from wallet provider
+    let private_key = match wallet_provider.get_encryption_key().await {
+        Ok(k) => k,
+        Err(e) => {
+            return HttpResponse::InternalServerError().json(PreviewKeysResponse {
+                success: false,
+                key_count: 0,
+                keys: vec![],
+                node_count: None,
+                connection_count: None,
+                cron_job_count: None,
+                channel_count: None,
+                channel_setting_count: None,
+                discord_registration_count: None,
+                skill_count: None,
+                agent_settings_count: None,
+                has_settings: None,
+                has_heartbeat: None,
+                has_soul: None,
+                has_identity: None,
+                backup_version: None,
+                message: None,
+                error: Some(format!("Failed to get encryption key: {}", e)),
+            });
+        }
     };
+
+    // Fetch from keystore API — use wallet provider for SIWE auth (works in both modes)
+    let keystore_result = KEYSTORE_CLIENT
+        .get_keys_with_provider(&wallet_provider)
+        .await;
     let keystore_resp = match keystore_result {
         Ok(resp) => resp,
         Err(e) => {

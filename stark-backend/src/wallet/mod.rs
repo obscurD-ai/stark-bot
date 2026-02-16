@@ -47,6 +47,19 @@ pub trait WalletProvider: Send + Sync {
     /// Get the wallet address (always available, cached)
     fn get_address(&self) -> String;
 
+    /// Get the ECIES encryption key (hex string) for backup encryption/decryption.
+    ///
+    /// Cloud backups are encrypted with ECIES (asymmetric encryption using a secp256k1
+    /// key pair). ECIES requires raw private key bytes — it can't use wallet signing APIs.
+    ///
+    /// - **Standard mode**: returns the raw private key directly (same key the wallet uses).
+    /// - **Flash mode**: Privy never exposes the raw private key, so we derive a
+    ///   deterministic encryption key by signing a fixed message ("starkbot-backup-key-v1")
+    ///   via Privy and hashing the signature with keccak256. Same message always produces
+    ///   the same signature, so the derived key is stable across restarts. Cached after
+    ///   first call to avoid repeated network round-trips to Privy.
+    async fn get_encryption_key(&self) -> Result<String, String>;
+
     /// Refresh wallet/connection if needed
     async fn refresh(&self) -> Result<(), String> {
         Ok(())

@@ -90,6 +90,8 @@ pub struct FlashWalletProvider {
     /// Privy wallet ID - used for signing requests
     wallet_id: String,
     http_client: reqwest::Client,
+    /// Cached ECIES encryption key (derived from signing "starkbot-backup-key-v1")
+    encryption_key_hex: tokio::sync::OnceCell<String>,
 }
 
 impl FlashWalletProvider {
@@ -150,6 +152,7 @@ impl FlashWalletProvider {
             address: data.admin_address,
             wallet_id: data.wallet_id,
             http_client,
+            encryption_key_hex: tokio::sync::OnceCell::new(),
         })
     }
 
@@ -469,6 +472,19 @@ impl WalletProvider for FlashWalletProvider {
 
     fn get_address(&self) -> String {
         self.address.clone()
+    }
+
+    async fn get_encryption_key(&self) -> Result<String, String> {
+        self.encryption_key_hex
+            .get_or_try_init(|| async {
+                let sig = self.sign_message(b"starkbot-backup-key-v1").await?;
+                let sig_bytes = sig.to_vec();
+                let derived_key = ethers::utils::keccak256(&sig_bytes);
+                log::info!("Flash mode: derived ECIES encryption key from wallet signature");
+                Ok(hex::encode(derived_key))
+            })
+            .await
+            .cloned()
     }
 
     async fn refresh(&self) -> Result<(), String> {

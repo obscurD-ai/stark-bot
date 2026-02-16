@@ -52,6 +52,8 @@ fn compute_domain_separator(domain: &serde_json::Value) -> Result<H256, String> 
 pub struct EnvWalletProvider {
     wallet: LocalWallet,
     address: String,
+    /// Raw private key hex (without 0x prefix) — used as ECIES encryption key
+    encryption_key_hex: String,
 }
 
 impl EnvWalletProvider {
@@ -78,7 +80,11 @@ impl EnvWalletProvider {
         let wallet = LocalWallet::from(signing_key);
         let address = format!("{:?}", wallet.address()).to_lowercase();
 
-        Ok(Self { wallet, address })
+        Ok(Self {
+            wallet,
+            address,
+            encryption_key_hex: key_hex.to_string(),
+        })
     }
 
     /// Get the underlying LocalWallet (for internal use only)
@@ -160,6 +166,10 @@ impl WalletProvider for EnvWalletProvider {
 
     fn get_address(&self) -> String {
         self.address.clone()
+    }
+
+    async fn get_encryption_key(&self) -> Result<String, String> {
+        Ok(self.encryption_key_hex.clone())
     }
 
     fn mode_name(&self) -> &'static str {

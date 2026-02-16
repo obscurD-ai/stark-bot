@@ -15,6 +15,8 @@ export interface Subagent {
   task: string;
   status: SubagentStatus;
   started_at: string;
+  parent_subagent_id?: string;
+  depth: number;
 }
 
 // Helper to check if a subagent is active (running or pending)

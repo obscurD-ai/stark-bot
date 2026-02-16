@@ -77,6 +77,8 @@ pub enum ToolGroup {
     Social,
     /// Memory tools - long-term memory storage and retrieval
     Memory,
+    /// Sub-agent spawning and management tools
+    SubAgent,
 }
 
 impl ToolGroup {
@@ -97,6 +99,7 @@ impl ToolGroup {
             ToolGroup::Messaging => "Messaging Tools",
             ToolGroup::Social => "Social/Marketing Tools",
             ToolGroup::Memory => "Memory Tools",
+            ToolGroup::SubAgent => "Sub-Agent Tools",
         }
     }
 
@@ -112,6 +115,7 @@ impl ToolGroup {
             ToolGroup::Messaging => "Inter-agent and external messaging",
             ToolGroup::Social => "Social media and marketing integrations",
             ToolGroup::Memory => "Long-term memory storage and retrieval",
+            ToolGroup::SubAgent => "Sub-agent spawning and management",
         }
     }
 
@@ -127,6 +131,7 @@ impl ToolGroup {
             "messaging" => Some(ToolGroup::Messaging),
             "social" | "marketing" | "moltx" => Some(ToolGroup::Social),
             "memory" => Some(ToolGroup::Memory),
+            "subagent" | "sub_agent" => Some(ToolGroup::SubAgent),
             _ => None,
         }
     }
@@ -143,6 +148,7 @@ impl ToolGroup {
             ToolGroup::Messaging => "messaging",
             ToolGroup::Social => "social",
             ToolGroup::Memory => "memory",
+            ToolGroup::SubAgent => "subagent",
         }
     }
 }
@@ -415,6 +421,10 @@ pub struct ToolContext {
     pub tool_http_client: Option<reqwest::Client>,
     /// Disk quota manager for enforcing disk usage limits
     pub disk_quota: Option<Arc<DiskQuotaManager>>,
+    /// If this context is running inside a sub-agent, the sub-agent's unique ID
+    pub current_subagent_id: Option<String>,
+    /// If this context is running inside a sub-agent, the sub-agent's depth (0 = top-level)
+    pub current_subagent_depth: Option<u32>,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -443,6 +453,8 @@ impl std::fmt::Debug for ToolContext {
             .field("proxy_url", &self.proxy_url)
             .field("tool_http_client", &self.tool_http_client.is_some())
             .field("disk_quota", &self.disk_quota.is_some())
+            .field("current_subagent_id", &self.current_subagent_id)
+            .field("current_subagent_depth", &self.current_subagent_depth)
             .finish()
     }
 }
@@ -474,6 +486,8 @@ impl Default for ToolContext {
             proxy_url: None,
             tool_http_client: None,
             disk_quota: None,
+            current_subagent_id: None,
+            current_subagent_depth: None,
         }
     }
 }
@@ -675,6 +689,13 @@ impl ToolContext {
     /// Add a MemoryStore to the context (for QMD memory tools)
     pub fn with_memory_store(mut self, store: Arc<MemoryStore>) -> Self {
         self.memory_store = Some(store);
+        self
+    }
+
+    /// Set sub-agent identity on this context (for recursive sub-agent tracking)
+    pub fn with_subagent_identity(mut self, id: String, depth: u32) -> Self {
+        self.current_subagent_id = Some(id);
+        self.current_subagent_depth = Some(depth);
         self
     }
 

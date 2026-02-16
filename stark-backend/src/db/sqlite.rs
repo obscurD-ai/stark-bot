@@ -1164,6 +1164,20 @@ impl Database {
             [],
         )?;
 
+        // Migration: Add parent_subagent_id and depth columns to sub_agents
+        let _ = conn.execute(
+            "ALTER TABLE sub_agents ADD COLUMN parent_subagent_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE sub_agents ADD COLUMN depth INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sub_agents_parent_subagent ON sub_agents(parent_subagent_id)",
+            [],
+        )?;
+
         // Migration: Add subtype column to agent_contexts if it doesn't exist
         let _ = conn.execute(
             "ALTER TABLE agent_contexts ADD COLUMN subtype TEXT NOT NULL DEFAULT 'finance'",
@@ -1347,6 +1361,32 @@ impl Database {
                 [],
             );
         }
+
+        // Agent subtypes - configurable agent subtypes (toolboxes)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_subtypes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL UNIQUE,
+                label TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '🤖',
+                description TEXT NOT NULL DEFAULT '',
+                tool_groups_json TEXT NOT NULL DEFAULT '[]',
+                skill_tags_json TEXT NOT NULL DEFAULT '[]',
+                prompt TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                max_iterations INTEGER NOT NULL DEFAULT 90,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Migration: add max_iterations column to existing agent_subtypes tables
+        let _ = conn.execute(
+            "ALTER TABLE agent_subtypes ADD COLUMN max_iterations INTEGER NOT NULL DEFAULT 90",
+            [],
+        );
 
         // Keystore state - track backup/retrieval status per wallet
         conn.execute(

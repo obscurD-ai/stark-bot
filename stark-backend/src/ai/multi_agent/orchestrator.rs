@@ -245,14 +245,14 @@ impl Orchestrator {
 
         // Only include toolbox selection instructions when no subtype is active yet
         if !self.context.subtype.is_selected() {
-            prompt.push_str(include_str!("prompts/toolbox_select.md"));
+            prompt.push_str(&Self::toolbox_select_prompt());
             prompt.push_str("\n\n");
         }
 
         prompt.push_str(base_prompt);
 
         // CodeEngineer-specific guidelines — injected when subtype is active
-        if self.context.subtype == AgentSubtype::CodeEngineer {
+        if self.context.subtype.as_str() == "code_engineer" {
             prompt.push_str("\n\n");
             prompt.push_str(&Self::code_engineer_guidelines());
         }
@@ -260,6 +260,28 @@ impl Orchestrator {
         prompt.push_str("\n\n---\n\n");
         prompt.push_str(&self.format_context_summary());
 
+        prompt
+    }
+
+    /// Generate the toolbox selection prompt dynamically from the registry.
+    fn toolbox_select_prompt() -> String {
+        use super::types;
+        let configs = types::all_subtype_configs();
+        if configs.is_empty() {
+            return include_str!("prompts/toolbox_select.md").to_string();
+        }
+
+        let mut prompt = String::from("## 🚨 FIRST THING: Select Your Toolbox 🚨\n\n");
+        prompt.push_str("**You start with NO tools available.** Before you can do ANYTHING, you MUST call `set_agent_subtype` to select your toolbox based on what the user wants:\n\n");
+        prompt.push_str("| User Wants | Toolbox | Call |\n");
+        prompt.push_str("|------------|---------|------|\n");
+        for c in &configs {
+            prompt.push_str(&format!(
+                "| {} | `{}` | `set_agent_subtype(subtype=\"{}\")` |\n",
+                c.description, c.key, c.key
+            ));
+        }
+        prompt.push_str("\n**YOUR FIRST TOOL CALL MUST BE `set_agent_subtype`.** No other tools will work until you select a toolbox.\n");
         prompt
     }
 

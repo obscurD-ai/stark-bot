@@ -730,6 +730,36 @@ async fn restore_backup_data(
         log::info!("[Keystore] Restored {} agent settings", restored_agent_settings);
     }
 
+    // Restore agent subtypes
+    let mut restored_subtypes = 0;
+    for entry in &backup_data.agent_subtypes {
+        let tool_groups: Vec<String> = serde_json::from_str(&entry.tool_groups_json).unwrap_or_default();
+        let skill_tags: Vec<String> = serde_json::from_str(&entry.skill_tags_json).unwrap_or_default();
+        let config = ai::multi_agent::types::AgentSubtypeConfig {
+            key: entry.key.clone(),
+            label: entry.label.clone(),
+            emoji: entry.emoji.clone(),
+            description: entry.description.clone(),
+            tool_groups,
+            skill_tags,
+            prompt: entry.prompt.clone(),
+            sort_order: entry.sort_order,
+            enabled: entry.enabled,
+            max_iterations: entry.max_iterations.unwrap_or(90) as u32,
+        };
+        match db.upsert_agent_subtype(&config) {
+            Ok(_) => restored_subtypes += 1,
+            Err(e) => log::warn!("[Keystore] Failed to restore agent subtype '{}': {}", entry.key, e),
+        }
+    }
+    if restored_subtypes > 0 {
+        log::info!("[Keystore] Restored {} agent subtypes", restored_subtypes);
+        // Reload registry with restored data
+        if let Ok(subtypes) = db.list_agent_subtypes() {
+            ai::multi_agent::types::load_subtype_registry(subtypes);
+        }
+    }
+
     log::info!("[Keystore] Restore complete");
     Ok((restored_keys, restored_nodes))
 }
@@ -923,6 +953,20 @@ async fn main() -> std::io::Result<()> {
             }
         }
         Err(e) => log::warn!("Failed to load x402 payment limits from DB: {}", e),
+    }
+
+    // Load agent subtypes (DB > defaultagents.ron)
+    {
+        let subtype_count = db.count_agent_subtypes().unwrap_or(0);
+        if subtype_count == 0 {
+            let configs = ai::multi_agent::types::load_default_agent_subtypes_from_file(config_dir);
+            for config in &configs {
+                let _ = db.upsert_agent_subtype(config);
+            }
+            log::info!("Seeded {} default agent subtypes from config", configs.len());
+        }
+        let subtypes = db.list_agent_subtypes().unwrap_or_default();
+        ai::multi_agent::types::load_subtype_registry(subtypes);
     }
 
     // Initialize keystore URL (must be before auto-retrieve)
@@ -1337,6 +1381,7 @@ async fn main() -> std::io::Result<()> {
             .configure(controllers::well_known::config)
             .configure(controllers::x402_limits::config)
             .configure(controllers::telemetry::config)
+            .configure(controllers::agent_subtypes::config)
             .configure(controllers::external_channel::config)
             // WebSocket Gateway route (same port as HTTP, required for single-port platforms)
             .route("/ws", web::get().to(gateway::actix_ws::ws_handler));

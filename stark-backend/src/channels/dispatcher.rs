@@ -1378,7 +1378,7 @@ impl MessageDispatcher {
         self.broadcaster.broadcast(GatewayEvent::agent_subtype_change(
             original_message.channel_id,
             subtype.as_str(),
-            subtype.label(),
+            &subtype.label(),
         ));
 
         // Build tool list: subtype-filtered + skill requires_tools + use_skill + mode tools
@@ -1513,7 +1513,7 @@ impl MessageDispatcher {
                 self.broadcaster.broadcast(GatewayEvent::agent_subtype_change(
                     channel_id,
                     new_subtype.as_str(),
-                    new_subtype.label(),
+                    &new_subtype.label(),
                 ));
                 return Some(new_subtype);
             }

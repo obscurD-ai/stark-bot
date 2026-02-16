@@ -73,6 +73,8 @@ pub struct BackupData {
     pub x402_payment_limits: Vec<X402PaymentLimitEntry>,
     /// Kanban board items
     pub kanban_items: Vec<KanbanItemEntry>,
+    /// Agent subtypes (configurable toolboxes)
+    pub agent_subtypes: Vec<AgentSubtypeEntry>,
 }
 
 /// Manual Default because DateTime<Utc> doesn't derive Default
@@ -100,6 +102,7 @@ impl Default for BackupData {
             agent_identity: None,
             x402_payment_limits: Vec::new(),
             kanban_items: Vec::new(),
+            agent_subtypes: Vec::new(),
         }
     }
 }
@@ -140,6 +143,7 @@ impl BackupData {
             + if self.agent_identity.is_some() { 1 } else { 0 }
             + self.x402_payment_limits.len()
             + self.kanban_items.len()
+            + self.agent_subtypes.len()
     }
 }
 
@@ -359,6 +363,22 @@ pub struct KanbanItemEntry {
     pub result: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Agent subtype entry in backup
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSubtypeEntry {
+    pub key: String,
+    pub label: String,
+    pub emoji: String,
+    pub description: String,
+    pub tool_groups_json: String,
+    pub skill_tags_json: String,
+    pub prompt: String,
+    pub sort_order: i32,
+    pub enabled: bool,
+    pub max_iterations: Option<u32>,
 }
 
 /// Options for what to include in a backup
@@ -643,6 +663,25 @@ pub async fn collect_backup_data(
                 result: i.result.clone(),
                 created_at: i.created_at.to_rfc3339(),
                 updated_at: i.updated_at.to_rfc3339(),
+            })
+            .collect();
+    }
+
+    // Agent subtypes
+    if let Ok(subtypes) = db.list_agent_subtypes() {
+        backup.agent_subtypes = subtypes
+            .iter()
+            .map(|s| AgentSubtypeEntry {
+                key: s.key.clone(),
+                label: s.label.clone(),
+                emoji: s.emoji.clone(),
+                description: s.description.clone(),
+                tool_groups_json: serde_json::to_string(&s.tool_groups).unwrap_or_else(|_| "[]".to_string()),
+                skill_tags_json: serde_json::to_string(&s.skill_tags).unwrap_or_else(|_| "[]".to_string()),
+                prompt: s.prompt.clone(),
+                sort_order: s.sort_order,
+                enabled: s.enabled,
+                max_iterations: Some(s.max_iterations),
             })
             .collect();
     }

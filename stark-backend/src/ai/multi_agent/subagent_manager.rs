@@ -125,6 +125,8 @@ impl SubAgentManager {
             &context.id,
             &context.label,
             &context.task,
+            context.parent_subagent_id.as_deref(),
+            context.depth,
         ));
 
         log::info!(
@@ -209,6 +211,8 @@ impl SubAgentManager {
                         &final_context.id,
                         &final_context.label,
                         &response,
+                        final_context.parent_subagent_id.as_deref(),
+                        final_context.depth,
                     ));
                 }
                 Err(error) => {
@@ -224,6 +228,8 @@ impl SubAgentManager {
                         &final_context.id,
                         &final_context.label,
                         final_context.error.as_deref().unwrap_or(&error),
+                        final_context.parent_subagent_id.as_deref(),
+                        final_context.depth,
                     ));
                 }
             }
@@ -339,7 +345,8 @@ impl SubAgentManager {
             .with_channel(context.parent_channel_id, "subagent".to_string())
             .with_session(session.id)
             .with_workspace(workspace_dir)
-            .with_broadcaster(broadcaster.clone());
+            .with_broadcaster(broadcaster.clone())
+            .with_subagent_identity(context.id.clone(), context.depth);
 
         // SECURITY: Pass safe_mode flag to tool context so memory tools sandbox to safemode/
         if parent_channel_safe_mode {
@@ -384,8 +391,15 @@ impl SubAgentManager {
             tool_registry.get_tool_definitions(&tool_config)
         };
 
+        // Filter out SubAgent tools — sub-agents don't get spawn_subagent
+        // (recursion is controlled by which subtypes include the SubAgent tool group)
+        let tools: Vec<ToolDefinition> = tools
+            .into_iter()
+            .filter(|t| t.group != crate::tools::ToolGroup::SubAgent)
+            .collect();
+
         // Execute the AI with tool loop
-        let max_iterations = 15; // Sub-agents get fewer iterations
+        let max_iterations = 90; // Matches default subtype config
         let mut tool_history: Vec<ToolHistoryEntry> = Vec::new();
         let mut final_response = String::new();
         let mut client_error_retries = 0;
@@ -550,8 +564,9 @@ impl SubAgentManager {
                 "INSERT INTO sub_agents (
                     subagent_id, parent_session_id, parent_channel_id, session_id,
                     label, task, status, model_override, thinking_level, timeout_secs,
-                    context, result, error, started_at, completed_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                    context, result, error, started_at, completed_at,
+                    parent_subagent_id, depth
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 rusqlite::params![
                     context.id,
                     context.parent_session_id,
@@ -568,6 +583,8 @@ impl SubAgentManager {
                     context.error,
                     context.started_at.to_rfc3339(),
                     context.completed_at.map(|t| t.to_rfc3339()),
+                    context.parent_subagent_id,
+                    context.depth,
                 ],
             )
             .map_err(|e| format!("Failed to insert sub-agent: {}", e))?;
@@ -584,7 +601,8 @@ impl SubAgentManager {
             "SELECT
                 subagent_id, parent_session_id, parent_channel_id, session_id,
                 label, task, status, model_override, thinking_level, timeout_secs,
-                context, result, error, started_at, completed_at
+                context, result, error, started_at, completed_at,
+                parent_subagent_id, depth
              FROM sub_agents WHERE subagent_id = ?1",
             [subagent_id],
             |row| {
@@ -610,6 +628,8 @@ impl SubAgentManager {
                         .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&chrono::Utc)),
                     read_only: false,
+                    parent_subagent_id: row.get(15)?,
+                    depth: row.get::<_, i64>(16).unwrap_or(0) as u32,
                 })
             },
         );
@@ -630,7 +650,8 @@ impl SubAgentManager {
                 "SELECT
                     subagent_id, parent_session_id, parent_channel_id, session_id,
                     label, task, status, model_override, thinking_level, timeout_secs,
-                    context, result, error, started_at, completed_at
+                    context, result, error, started_at, completed_at,
+                    parent_subagent_id, depth
                  FROM sub_agents
                  WHERE parent_channel_id = ?1
                  ORDER BY started_at DESC",
@@ -661,6 +682,8 @@ impl SubAgentManager {
                         .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                         .map(|dt| dt.with_timezone(&chrono::Utc)),
                     read_only: false,
+                    parent_subagent_id: row.get(15)?,
+                    depth: row.get::<_, i64>(16).unwrap_or(0) as u32,
                 })
             })
             .map_err(|e| format!("Failed to execute query: {}", e))?;
@@ -761,7 +784,14 @@ impl SubAgentManager {
 // Add new gateway events for sub-agents
 impl GatewayEvent {
     /// Sub-agent spawned and starting execution
-    pub fn subagent_spawned(channel_id: i64, subagent_id: &str, label: &str, task: &str) -> Self {
+    pub fn subagent_spawned(
+        channel_id: i64,
+        subagent_id: &str,
+        label: &str,
+        task: &str,
+        parent_subagent_id: Option<&str>,
+        depth: u32,
+    ) -> Self {
         Self::new(
             "subagent.spawned",
             json!({
@@ -769,13 +799,22 @@ impl GatewayEvent {
                 "subagent_id": subagent_id,
                 "label": label,
                 "task": if task.len() > 200 { format!("{}...", &task[..200]) } else { task.to_string() },
+                "parent_subagent_id": parent_subagent_id,
+                "depth": depth,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )
     }
 
     /// Sub-agent completed successfully
-    pub fn subagent_completed(channel_id: i64, subagent_id: &str, label: &str, result: &str) -> Self {
+    pub fn subagent_completed(
+        channel_id: i64,
+        subagent_id: &str,
+        label: &str,
+        result: &str,
+        parent_subagent_id: Option<&str>,
+        depth: u32,
+    ) -> Self {
         Self::new(
             "subagent.completed",
             json!({
@@ -783,13 +822,22 @@ impl GatewayEvent {
                 "subagent_id": subagent_id,
                 "label": label,
                 "result": if result.len() > 500 { format!("{}...", &result[..500]) } else { result.to_string() },
+                "parent_subagent_id": parent_subagent_id,
+                "depth": depth,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )
     }
 
     /// Sub-agent failed
-    pub fn subagent_failed(channel_id: i64, subagent_id: &str, label: &str, error: &str) -> Self {
+    pub fn subagent_failed(
+        channel_id: i64,
+        subagent_id: &str,
+        label: &str,
+        error: &str,
+        parent_subagent_id: Option<&str>,
+        depth: u32,
+    ) -> Self {
         Self::new(
             "subagent.failed",
             json!({
@@ -797,6 +845,8 @@ impl GatewayEvent {
                 "subagent_id": subagent_id,
                 "label": label,
                 "error": error,
+                "parent_subagent_id": parent_subagent_id,
+                "depth": depth,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

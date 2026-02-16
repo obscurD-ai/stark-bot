@@ -181,6 +181,9 @@ mod tests {
         fn mode_name(&self) -> &'static str {
             "test"
         }
+        async fn get_encryption_key(&self) -> Result<String, String> {
+            Ok("0000000000000000000000000000000000000000000000000000000000000001".to_string())
+        }
     }
 
     fn test_wallet() -> Arc<dyn WalletProvider> {

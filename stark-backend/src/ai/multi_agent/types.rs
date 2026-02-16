@@ -5,6 +5,175 @@ use serde::{Deserialize, Serialize};
 use crate::tools::types::ToolGroup;
 
 // =====================================================
+// Agent Subtype Config (dynamic, config-driven subtypes)
+// =====================================================
+
+/// A fully-configurable agent subtype definition.
+/// Stored in DB, loaded from `config/defaultagents.ron` on first boot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentSubtypeConfig {
+    pub key: String,
+    pub label: String,
+    pub emoji: String,
+    pub description: String,
+    /// Tool group keys (e.g. ["finance"] or ["development", "exec"])
+    pub tool_groups: Vec<String>,
+    /// Skill tags this subtype can access
+    pub skill_tags: Vec<String>,
+    /// Explicit tool allowlist. When non-empty, ONLY these tools are available
+    /// (overrides group-based filtering). Used to lock down orchestrator-only subtypes.
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+    /// The prompt text returned when this subtype is activated
+    pub prompt: String,
+    pub sort_order: i32,
+    pub enabled: bool,
+    /// Maximum iterations for agents using this subtype (default 90)
+    #[serde(default = "default_max_iterations")]
+    pub max_iterations: u32,
+}
+
+fn default_max_iterations() -> u32 {
+    90
+}
+
+/// Global registry of agent subtype configs, loaded at startup from DB.
+static SUBTYPE_REGISTRY: std::sync::OnceLock<parking_lot::RwLock<Vec<AgentSubtypeConfig>>> =
+    std::sync::OnceLock::new();
+
+fn registry() -> &'static parking_lot::RwLock<Vec<AgentSubtypeConfig>> {
+    SUBTYPE_REGISTRY.get_or_init(|| parking_lot::RwLock::new(Vec::new()))
+}
+
+/// Load agent subtype configs into the global registry (called at startup).
+pub fn load_subtype_registry(configs: Vec<AgentSubtypeConfig>) {
+    let mut reg = registry().write();
+    *reg = configs;
+    log::info!("[SUBTYPE_REGISTRY] Loaded {} agent subtypes", reg.len());
+}
+
+/// Get a single subtype config by key.
+pub fn get_subtype_config(key: &str) -> Option<AgentSubtypeConfig> {
+    let reg = registry().read();
+    reg.iter().find(|c| c.key == key).cloned()
+}
+
+/// Get all subtype configs (enabled only, sorted by sort_order).
+pub fn all_subtype_configs() -> Vec<AgentSubtypeConfig> {
+    let reg = registry().read();
+    let mut configs: Vec<_> = reg.iter().filter(|c| c.enabled).cloned().collect();
+    configs.sort_by_key(|c| c.sort_order);
+    configs
+}
+
+/// Get all subtype configs including disabled ones (for admin UI).
+pub fn all_subtype_configs_unfiltered() -> Vec<AgentSubtypeConfig> {
+    let reg = registry().read();
+    let mut configs: Vec<_> = reg.iter().cloned().collect();
+    configs.sort_by_key(|c| c.sort_order);
+    configs
+}
+
+/// Check if the registry has been populated.
+pub fn subtype_registry_loaded() -> bool {
+    SUBTYPE_REGISTRY.get().map(|r| !r.read().is_empty()).unwrap_or(false)
+}
+
+/// Load default agent subtypes from `config/defaultagents.ron`.
+pub fn load_default_agent_subtypes_from_file(config_dir: &std::path::Path) -> Vec<AgentSubtypeConfig> {
+    let path = config_dir.join("defaultagents.ron");
+    match std::fs::read_to_string(&path) {
+        Ok(content) => match ron::from_str::<Vec<AgentSubtypeConfig>>(&content) {
+            Ok(configs) => {
+                log::info!("[SUBTYPE] Loaded {} default subtypes from {}", configs.len(), path.display());
+                configs
+            }
+            Err(e) => {
+                log::error!("[SUBTYPE] Failed to parse {}: {}", path.display(), e);
+                builtin_default_subtypes()
+            }
+        },
+        Err(e) => {
+            log::warn!("[SUBTYPE] Could not read {}: {} — using built-in defaults", path.display(), e);
+            builtin_default_subtypes()
+        }
+    }
+}
+
+/// Hard-coded fallback defaults (used if RON file is missing).
+pub fn builtin_default_subtypes() -> Vec<AgentSubtypeConfig> {
+    vec![
+        AgentSubtypeConfig {
+            key: "director".to_string(),
+            label: "Director".to_string(),
+            emoji: "🎬".to_string(),
+            description: "Orchestrate tasks by spawning and coordinating sub-agents".to_string(),
+            tool_groups: vec!["subagent".to_string()],
+            skill_tags: vec![],
+            allowed_tools: vec![
+                "spawn_subagent", "subagent_status", "say_to_user",
+                "ask_user", "define_tasks", "add_task", "task_fully_completed",
+            ].into_iter().map(String::from).collect(),
+            prompt: "🎬 Director toolbox activated.\n\nYou are a pure orchestrator. Delegate ALL work to sub-agents.\n\n## Tools\n• spawn_subagent — Spawn a sub-agent with a specific subtype and task\n• subagent_status — Check progress of running sub-agents\n\n## Strategy\n1. Break the request into subtasks\n2. Spawn sub-agents with appropriate subtypes (finance, code_engineer, secretary)\n3. Poll subagent_status and synthesize results".to_string(),
+            sort_order: -1,
+            enabled: true,
+            max_iterations: 90,
+        },
+        AgentSubtypeConfig {
+            key: "finance".to_string(),
+            label: "Finance".to_string(),
+            emoji: "💰".to_string(),
+            description: "Crypto swaps, transfers, DeFi operations, token lookups".to_string(),
+            tool_groups: vec!["finance".to_string()],
+            skill_tags: vec![
+                "crypto", "defi", "transfer", "swap", "finance", "wallet", "token",
+                "bridge", "lending", "yield", "dex", "payments", "x402", "transaction",
+                "polymarket", "prediction-markets", "trading", "price", "discord", "tipping",
+            ].into_iter().map(String::from).collect(),
+            allowed_tools: vec![],
+            prompt: "💰 Finance toolbox activated.".to_string(),
+            sort_order: 0,
+            enabled: true,
+            max_iterations: 90,
+        },
+        AgentSubtypeConfig {
+            key: "code_engineer".to_string(),
+            label: "CodeEngineer".to_string(),
+            emoji: "🛠️".to_string(),
+            description: "Code editing, git operations, testing, debugging".to_string(),
+            tool_groups: vec!["development".to_string(), "exec".to_string()],
+            skill_tags: vec![
+                "development", "git", "testing", "debugging", "review", "code", "github",
+                "devops", "deployment", "infrastructure", "workflow", "discussions", "ci-cd",
+                "skills", "project", "scaffold",
+            ].into_iter().map(String::from).collect(),
+            allowed_tools: vec![],
+            prompt: "🛠️ CodeEngineer toolbox activated.".to_string(),
+            sort_order: 1,
+            enabled: true,
+            max_iterations: 90,
+        },
+        AgentSubtypeConfig {
+            key: "secretary".to_string(),
+            label: "Secretary".to_string(),
+            emoji: "📱".to_string(),
+            description: "Social media, messaging, scheduling, marketing".to_string(),
+            tool_groups: vec!["messaging".to_string(), "social".to_string(), "memory".to_string(), "exec".to_string()],
+            skill_tags: vec![
+                "social", "marketing", "messaging", "moltx", "scheduling", "communication",
+                "social-media", "secretary", "journal", "discord", "telegram", "twitter", "4claw",
+                "x402", "cron", "moltbook", "publishing", "content",
+            ].into_iter().map(String::from).collect(),
+            allowed_tools: vec![],
+            prompt: "📱 Secretary toolbox activated.".to_string(),
+            sort_order: 2,
+            enabled: true,
+            max_iterations: 90,
+        },
+    ]
+}
+
+// =====================================================
 // Task Planner Types
 // =====================================================
 
@@ -182,7 +351,7 @@ impl TaskQueue {
         "set_agent_subtype",
         "add_task",
         "ask_user",
-        "subagent",
+        "spawn_subagent",
         "subagent_status",
         "use_skill",
         "manage_skills",
@@ -420,8 +589,11 @@ mod task_queue_tests {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSubtype {
-    /// No subtype selected yet - agent MUST choose one before using other tools
+    /// Director - orchestrates tasks by spawning and coordinating sub-agents
+    /// All chats start as Director so spawn_subagent is immediately available
     #[default]
+    Director,
+    /// No subtype selected yet - agent MUST choose one before using other tools
     None,
     /// Finance/DeFi specialist - crypto swaps, transfers, web3 operations
     Finance,
@@ -432,121 +604,187 @@ pub enum AgentSubtype {
 }
 
 impl AgentSubtype {
-    /// Get all selectable subtypes (excludes None)
+    /// Get all selectable subtypes (excludes None).
+    /// Prefers dynamic registry; falls back to hardcoded built-ins.
     pub fn all() -> Vec<AgentSubtype> {
-        vec![
-            AgentSubtype::Finance,
-            AgentSubtype::CodeEngineer,
-            AgentSubtype::Secretary,
-        ]
+        // If the registry is loaded, return one variant per enabled config.
+        // We map each config key to the corresponding enum variant (Custom for non-builtins).
+        if subtype_registry_loaded() {
+            all_subtype_configs()
+                .iter()
+                .filter_map(|c| Self::from_str(&c.key))
+                .collect()
+        } else {
+            vec![
+                AgentSubtype::Director,
+                AgentSubtype::Finance,
+                AgentSubtype::CodeEngineer,
+                AgentSubtype::Secretary,
+            ]
+        }
     }
 
-    /// Check if a subtype has been selected
+    /// Check if a subtype has been selected (Director counts as selected)
     pub fn is_selected(&self) -> bool {
         !matches!(self, AgentSubtype::None)
     }
 
-    /// Get the tool groups allowed for this subtype
-    /// Note: When None, only System tools are available (to allow set_agent_subtype)
+    /// Get the tool groups allowed for this subtype.
+    /// Delegates to the registry config when available.
     pub fn allowed_tool_groups(&self) -> Vec<ToolGroup> {
-        match self {
-            AgentSubtype::None => {
-                // Only system tools when no subtype selected
-                // This forces the agent to call set_agent_subtype first
-                vec![ToolGroup::System]
-            }
-            _ => {
-                // Core groups available to all selected subtypes
-                let mut groups = vec![
-                    ToolGroup::System,     // set_agent_subtype, subagent
-                    ToolGroup::Web,        // web_fetch
-                    ToolGroup::Filesystem, // read_file, list_files
-                ];
+        if matches!(self, AgentSubtype::None) {
+            return vec![ToolGroup::System];
+        }
 
-                // Add subtype-specific groups
-                match self {
-                    AgentSubtype::Finance => {
-                        groups.push(ToolGroup::Finance); // web3_tx, token_lookup, x402_*, etc.
-                    }
-                    AgentSubtype::CodeEngineer => {
-                        groups.push(ToolGroup::Development); // edit_file, grep, glob, git, etc.
-                        groups.push(ToolGroup::Exec);        // exec command
-                    }
-                    AgentSubtype::Secretary => {
-                        groups.push(ToolGroup::Messaging); // agent_send
-                        groups.push(ToolGroup::Social);    // moltx, scheduling tools
-                        groups.push(ToolGroup::Memory);    // memory_search, memory_read
-                        groups.push(ToolGroup::Exec);      // exec command (curl, etc.)
-                    }
-                    AgentSubtype::None => unreachable!(), // Handled above
-                }
-
-                groups
+        // If the config has an explicit allowed_tools list, skip group-based access
+        // (the registry will use the allowlist directly instead)
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            if !config.allowed_tools.is_empty() {
+                // Return only the declared tool_groups (for metadata/UI)
+                return config.tool_groups.iter()
+                    .filter_map(|g| ToolGroup::from_str(g))
+                    .collect();
             }
         }
+
+        // Core groups available to all selected subtypes (when no explicit allowlist)
+        let mut groups = vec![
+            ToolGroup::System,
+            ToolGroup::Web,
+            ToolGroup::Filesystem,
+        ];
+
+        // Try registry first
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            for g in &config.tool_groups {
+                if let Some(tg) = ToolGroup::from_str(g) {
+                    if !groups.contains(&tg) {
+                        groups.push(tg);
+                    }
+                }
+            }
+            return groups;
+        }
+
+        // Hardcoded fallback (registry not loaded yet)
+        match self {
+            AgentSubtype::Director => {
+                groups.push(ToolGroup::SubAgent);
+            }
+            AgentSubtype::Finance => {
+                groups.push(ToolGroup::Finance);
+            }
+            AgentSubtype::CodeEngineer => {
+                groups.push(ToolGroup::Development);
+                groups.push(ToolGroup::Exec);
+            }
+            AgentSubtype::Secretary => {
+                groups.push(ToolGroup::Messaging);
+                groups.push(ToolGroup::Social);
+                groups.push(ToolGroup::Memory);
+                groups.push(ToolGroup::Exec);
+            }
+            AgentSubtype::None => unreachable!(),
+        }
+
+        groups
     }
 
-    /// Get the skill tags allowed for this subtype
-    /// Note: "general" and "all" tags are available to ALL subtypes
-    /// When None, no skills are available (must select subtype first)
-    pub fn allowed_skill_tags(&self) -> Vec<&'static str> {
-        match self {
-            AgentSubtype::None => {
-                // No skills available until subtype is selected
-                vec![]
-            }
-            _ => {
-                // Universal tags available to all selected subtypes
-                let mut tags = vec!["general", "all", "identity", "eip8004", "registration"];
+    /// Get the skill tags allowed for this subtype.
+    /// Delegates to the registry config when available.
+    pub fn allowed_skill_tags(&self) -> Vec<String> {
+        if matches!(self, AgentSubtype::None) {
+            return vec![];
+        }
 
-                // Add subtype-specific tags
-                match self {
-                    AgentSubtype::Finance => tags.extend([
-                        "crypto", "defi", "transfer", "swap", "finance", "wallet", "token",
-                        "bridge", "lending", "yield", "dex", "payments", "x402", "transaction",
-                        "polymarket", "prediction-markets", "trading", "price", "discord", "tipping",
-                    ]),
-                    AgentSubtype::CodeEngineer => tags.extend([
-                        "development", "git", "testing", "debugging", "review", "code", "github",
-                        "devops", "deployment", "infrastructure", "workflow", "discussions", "ci-cd",
-                        "skills", "project", "scaffold",
-                    ]),
-                    AgentSubtype::Secretary => tags.extend([
-                        "social", "marketing", "messaging", "moltx", "scheduling", "communication",
-                        "social-media", "secretary", "journal", "discord", "telegram", "twitter", "4claw",
-                        "x402", "cron", "moltbook", "publishing", "content",
-                    ]),
-                    AgentSubtype::None => unreachable!(),
-                }
-
-                tags
+        // If the config has an explicit allowed_tools list AND empty skill_tags,
+        // this subtype gets no skills (pure orchestrator pattern)
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            if !config.allowed_tools.is_empty() && config.skill_tags.is_empty() {
+                return vec![];
             }
         }
+
+        // Universal tags available to all selected subtypes
+        let mut tags: Vec<String> = vec![
+            "general", "all", "identity", "eip8004", "registration",
+        ].into_iter().map(String::from).collect();
+
+        // Try registry first
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            for tag in &config.skill_tags {
+                if !tags.contains(tag) {
+                    tags.push(tag.clone());
+                }
+            }
+            return tags;
+        }
+
+        // Hardcoded fallback
+        let extra: Vec<&str> = match self {
+            AgentSubtype::Director => vec![
+                "orchestration", "research", "delegation", "general",
+            ],
+            AgentSubtype::Finance => vec![
+                "crypto", "defi", "transfer", "swap", "finance", "wallet", "token",
+                "bridge", "lending", "yield", "dex", "payments", "x402", "transaction",
+                "polymarket", "prediction-markets", "trading", "price", "discord", "tipping",
+            ],
+            AgentSubtype::CodeEngineer => vec![
+                "development", "git", "testing", "debugging", "review", "code", "github",
+                "devops", "deployment", "infrastructure", "workflow", "discussions", "ci-cd",
+                "skills", "project", "scaffold",
+            ],
+            AgentSubtype::Secretary => vec![
+                "social", "marketing", "messaging", "moltx", "scheduling", "communication",
+                "social-media", "secretary", "journal", "discord", "telegram", "twitter", "4claw",
+                "x402", "cron", "moltbook", "publishing", "content",
+            ],
+            AgentSubtype::None => unreachable!(),
+        };
+        tags.extend(extra.into_iter().map(String::from));
+        tags
     }
 
-    /// Human-readable label for UI display
-    pub fn label(&self) -> &'static str {
+    /// Human-readable label for UI display.
+    /// Uses registry if available, otherwise hardcoded.
+    pub fn label(&self) -> String {
+        if matches!(self, AgentSubtype::None) {
+            return "Selecting...".to_string();
+        }
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            return config.label;
+        }
         match self {
+            AgentSubtype::Director => "Director",
             AgentSubtype::None => "Selecting...",
             AgentSubtype::Finance => "Finance",
             AgentSubtype::CodeEngineer => "CodeEngineer",
             AgentSubtype::Secretary => "Secretary",
-        }
+        }.to_string()
     }
 
-    /// Get description of what this subtype does
-    pub fn description(&self) -> &'static str {
+    /// Get description of what this subtype does.
+    pub fn description(&self) -> String {
+        if matches!(self, AgentSubtype::None) {
+            return "No toolbox selected - must choose one first".to_string();
+        }
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            return config.description;
+        }
         match self {
+            AgentSubtype::Director => "Orchestrate tasks by spawning and coordinating sub-agents",
             AgentSubtype::None => "No toolbox selected - must choose one first",
             AgentSubtype::Finance => "Crypto swaps, transfers, DeFi operations, token lookups",
             AgentSubtype::CodeEngineer => "Code editing, git operations, testing, debugging",
             AgentSubtype::Secretary => "Social media, messaging, scheduling, marketing",
-        }
+        }.to_string()
     }
 
     /// Get the string representation
     pub fn as_str(&self) -> &'static str {
         match self {
+            AgentSubtype::Director => "director",
             AgentSubtype::None => "none",
             AgentSubtype::Finance => "finance",
             AgentSubtype::CodeEngineer => "code_engineer",
@@ -554,9 +792,29 @@ impl AgentSubtype {
         }
     }
 
-    /// Parse from string (does not parse "none" - use None variant directly)
+    /// Parse from string. Checks registry first for custom subtypes,
+    /// falls back to built-in aliases.
     pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
+        let lower = s.to_lowercase();
+
+        // Check registry for exact key match
+        if subtype_registry_loaded() {
+            if get_subtype_config(&lower).is_some() {
+                // Map known keys to enum variants
+                return match lower.as_str() {
+                    "director" => Some(AgentSubtype::Director),
+                    "finance" => Some(AgentSubtype::Finance),
+                    "code_engineer" => Some(AgentSubtype::CodeEngineer),
+                    "secretary" => Some(AgentSubtype::Secretary),
+                    // Custom subtypes: map to the closest built-in or Finance as default carrier
+                    _ => Some(AgentSubtype::Finance), // Custom subtypes use Finance variant as carrier
+                };
+            }
+        }
+
+        // Hardcoded aliases fallback
+        match lower.as_str() {
+            "director" | "orchestrator" | "research" => Some(AgentSubtype::Director),
             "finance" | "defi" | "crypto" | "swap" | "transfer" => Some(AgentSubtype::Finance),
             "code_engineer" | "codeengineer" | "code" | "dev" | "developer" | "git" => {
                 Some(AgentSubtype::CodeEngineer)
@@ -568,14 +826,21 @@ impl AgentSubtype {
         }
     }
 
-    /// Get emoji for this subtype
-    pub fn emoji(&self) -> &'static str {
+    /// Get emoji for this subtype.
+    pub fn emoji(&self) -> String {
+        if matches!(self, AgentSubtype::None) {
+            return "❓".to_string();
+        }
+        if let Some(config) = get_subtype_config(self.as_str()) {
+            return config.emoji;
+        }
         match self {
+            AgentSubtype::Director => "🎬",
             AgentSubtype::None => "❓",
             AgentSubtype::Finance => "💰",
             AgentSubtype::CodeEngineer => "🛠️",
             AgentSubtype::Secretary => "📱",
-        }
+        }.to_string()
     }
 }
 
@@ -817,6 +1082,12 @@ pub struct SubAgentContext {
     /// If true, restrict to read-only tools (for safe parallel research)
     #[serde(default)]
     pub read_only: bool,
+    /// ID of the parent sub-agent that spawned this one (None for top-level)
+    #[serde(default)]
+    pub parent_subagent_id: Option<String>,
+    /// Depth in the sub-agent tree (0 for top-level, 1 for child of top-level, etc.)
+    #[serde(default)]
+    pub depth: u32,
 }
 
 impl SubAgentContext {
@@ -846,6 +1117,8 @@ impl SubAgentContext {
             context: None,
             thinking_level: None,
             read_only: false,
+            parent_subagent_id: None,
+            depth: 0,
         }
     }
 
@@ -870,6 +1143,14 @@ impl SubAgentContext {
     /// Set read-only mode (restricts to read-only tools for safe research)
     pub fn with_read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
+        self
+    }
+
+    /// Set parent sub-agent identity (for recursive sub-agent tracking)
+    /// depth is set to parent_depth + 1
+    pub fn with_parent_subagent(mut self, parent_id: String, parent_depth: u32) -> Self {
+        self.parent_subagent_id = Some(parent_id);
+        self.depth = parent_depth + 1;
         self
     }
 

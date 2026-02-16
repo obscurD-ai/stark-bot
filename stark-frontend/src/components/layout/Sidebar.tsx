@@ -27,6 +27,7 @@ import {
   Columns,
   Package,
   HardDrive,
+  Shapes,
 } from 'lucide-react';
 import HeartbeatIcon from '@/components/HeartbeatIcon';
 import NavItem from './NavItem';
@@ -104,6 +105,7 @@ export default function Sidebar() {
           </p>
           <NavItem to="/agent-settings" icon={Settings} label="Agent Settings" />
           <NavItem to="/bot-settings" icon={Bot} label="Bot Settings" />
+          <NavItem to="/agent-subtypes" icon={Shapes} label="Agent Subtypes" />
           <NavItem to="/channels" icon={Monitor} label="Channels" />
           <NavItem to="/scheduling" icon={Clock} label="Scheduling" />
           <NavItem to="/api-keys" icon={Key} label="API Keys" />

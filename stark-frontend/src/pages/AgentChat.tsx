@@ -845,8 +845,8 @@ export default function AgentChat() {
       // Filter out events from other channels/sessions
       if (!isCurrentSessionEvent(data, dbSessionId)) return;
 
-      const event = data as { subagent_id: string; label: string; task: string; timestamp: string };
-      console.log('[Subagent] Spawned:', event.label);
+      const event = data as { subagent_id: string; label: string; task: string; timestamp: string; parent_subagent_id?: string; depth?: number };
+      console.log('[Subagent] Spawned:', event.label, 'depth:', event.depth ?? 0);
       setSubagents((prev) => [
         ...prev.filter(s => s.id !== event.subagent_id),
         {
@@ -855,6 +855,8 @@ export default function AgentChat() {
           task: event.task,
           status: SubagentStatus.Running,
           started_at: event.timestamp,
+          parent_subagent_id: event.parent_subagent_id,
+          depth: event.depth ?? 0,
         },
       ]);
     };

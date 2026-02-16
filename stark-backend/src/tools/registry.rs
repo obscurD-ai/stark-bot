@@ -1,4 +1,4 @@
-use crate::ai::multi_agent::types::AgentSubtype;
+use crate::ai::multi_agent::types::{AgentSubtype, get_subtype_config};
 use crate::tools::types::{ToolConfig, ToolContext, ToolDefinition, ToolGroup, ToolProfile, ToolResult, ToolSafetyLevel};
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -115,13 +115,20 @@ impl ToolRegistry {
             .collect()
     }
 
-    /// Get tools that are allowed for a specific agent subtype
-    /// System tools are always included regardless of subtype
+    /// Get tools that are allowed for a specific agent subtype.
+    /// If the subtype config has an explicit `allowed_tools` list, only those tools
+    /// are included (overrides group-based filtering). Otherwise, System tools are
+    /// always included plus tools from the subtype's allowed groups.
     pub fn get_allowed_tools_for_subtype(
         &self,
         config: &ToolConfig,
         subtype: AgentSubtype,
     ) -> Vec<Arc<dyn Tool>> {
+        // Check if this subtype has an explicit tool allowlist (e.g. Director)
+        let explicit_allowlist: Option<Vec<String>> = get_subtype_config(subtype.as_str())
+            .filter(|c| !c.allowed_tools.is_empty())
+            .map(|c| c.allowed_tools);
+
         let allowed_groups = subtype.allowed_tool_groups();
         self.tools
             .read()
@@ -132,8 +139,15 @@ impl ToolRegistry {
                 if def.hidden {
                     return false;
                 }
+
+                // If the subtype has an explicit allowlist, use it exclusively
+                if let Some(ref allowlist) = explicit_allowlist {
+                    return allowlist.iter().any(|name| name == &def.name)
+                        && config.is_tool_allowed(&def.name, tool.group());
+                }
+
                 let group = tool.group();
-                // System tools are always available
+                // System tools are always available (when no explicit allowlist)
                 let group_allowed =
                     group == ToolGroup::System || allowed_groups.contains(&group);
                 // Also check against the tool config

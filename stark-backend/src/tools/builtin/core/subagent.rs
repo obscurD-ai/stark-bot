@@ -146,14 +146,14 @@ impl SubagentTool {
 
         SubagentTool {
             definition: ToolDefinition {
-                name: "subagent".to_string(),
+                name: "spawn_subagent".to_string(),
                 description: "Spawn a background agent instance to work on a task autonomously. Useful for parallel task execution, long-running operations, or delegating subtasks. The subagent runs independently and can use tools.".to_string(),
                 input_schema: ToolInputSchema {
                     schema_type: "object".to_string(),
                     properties,
                     required: vec!["task".to_string()],
                 },
-                group: ToolGroup::System,
+                group: ToolGroup::SubAgent,
                 hidden: false,
             },
         }
@@ -258,7 +258,7 @@ impl Tool for SubagentTool {
                 let channel_id = context.channel_id.unwrap();
 
                 let read_only = params.read_only.unwrap_or(false);
-                let subagent_context = SubAgentContext::new(
+                let mut subagent_context = SubAgentContext::new(
                     subagent_id.clone(),
                     session_id,
                     channel_id,
@@ -270,6 +270,11 @@ impl Tool for SubagentTool {
                 .with_context(params.context.clone())
                 .with_thinking(params.thinking.clone())
                 .with_read_only(read_only);
+
+                // If we're inside a sub-agent, propagate parent identity for depth tracking
+                if let (Some(parent_id), Some(parent_depth)) = (&context.current_subagent_id, context.current_subagent_depth) {
+                    subagent_context = subagent_context.with_parent_subagent(parent_id.clone(), parent_depth);
+                }
 
                 // Spawn the sub-agent
                 match manager.spawn(subagent_context).await {
@@ -581,7 +586,7 @@ impl SubagentStatusTool {
                     properties,
                     required: vec![],
                 },
-                group: ToolGroup::System,
+                group: ToolGroup::SubAgent,
                 hidden: false,
             },
         }
@@ -824,8 +829,8 @@ mod tests {
         let tool = SubagentTool::new();
         let def = tool.definition();
 
-        assert_eq!(def.name, "subagent");
-        assert_eq!(def.group, ToolGroup::System);
+        assert_eq!(def.name, "spawn_subagent");
+        assert_eq!(def.group, ToolGroup::SubAgent);
         assert!(def.input_schema.required.contains(&"task".to_string()));
     }
 
@@ -835,7 +840,7 @@ mod tests {
         let def = tool.definition();
 
         assert_eq!(def.name, "subagent_status");
-        assert_eq!(def.group, ToolGroup::System);
+        assert_eq!(def.group, ToolGroup::SubAgent);
         assert!(def.input_schema.required.is_empty());
     }
 

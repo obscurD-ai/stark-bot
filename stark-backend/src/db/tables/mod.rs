@@ -2,6 +2,7 @@
 //!
 //! Each module adds `impl Database` blocks with methods for a specific table group.
 
+pub mod agent_subtypes; // agent_subtypes (configurable agent toolboxes)
 mod auth;           // auth_sessions, auth_challenges
 mod api_keys;       // external_api_keys
 mod channels;       // external_channels

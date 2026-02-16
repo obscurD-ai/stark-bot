@@ -1,4 +1,5 @@
 pub mod agent_settings;
+pub mod agent_subtypes;
 pub mod api_keys;
 pub mod auth;
 pub mod broadcasted_transactions;

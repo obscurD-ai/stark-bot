@@ -1748,6 +1748,53 @@ export async function updateX402PaymentLimit(data: {
   });
 }
 
+// Agent Subtypes API
+export interface AgentSubtypeInfo {
+  key: string;
+  label: string;
+  emoji: string;
+  description: string;
+  tool_groups: string[];
+  skill_tags: string[];
+  prompt: string;
+  sort_order: number;
+  enabled: boolean;
+}
+
+export async function getAgentSubtypes(): Promise<AgentSubtypeInfo[]> {
+  return apiFetch('/agent-subtypes');
+}
+
+export async function getAgentSubtype(key: string): Promise<AgentSubtypeInfo> {
+  return apiFetch(`/agent-subtypes/${encodeURIComponent(key)}`);
+}
+
+export async function createAgentSubtype(config: AgentSubtypeInfo): Promise<AgentSubtypeInfo> {
+  return apiFetch('/agent-subtypes', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function updateAgentSubtype(key: string, config: Partial<AgentSubtypeInfo>): Promise<AgentSubtypeInfo> {
+  return apiFetch(`/agent-subtypes/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function deleteAgentSubtype(key: string): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/agent-subtypes/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function resetAgentSubtypeDefaults(): Promise<{ success: boolean; message: string; count: number }> {
+  return apiFetch('/agent-subtypes/reset-defaults', {
+    method: 'POST',
+  });
+}
+
 // Kanban Board API
 export interface KanbanItem {
   id: number;

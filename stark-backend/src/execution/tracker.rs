@@ -554,7 +554,7 @@ impl ExecutionTracker {
             }
 
             // Agent/subagent operations
-            "spawn_agent" | "subagent" => {
+            "spawn_agent" | "subagent" | "spawn_subagent" => {
                 let task = args.get("task")
                     .or_else(|| args.get("description"))
                     .and_then(|v| v.as_str())

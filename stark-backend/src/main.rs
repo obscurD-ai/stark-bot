@@ -1218,13 +1218,14 @@ async fn main() -> std::io::Result<()> {
     // Flash mode: ECIES encryption key is now derived on-demand via
     // wallet_provider.get_encryption_key() — no startup derivation needed.
 
-    // Initialize Gateway with tool registry, wallet provider, and tx_queue for channels
+    // Initialize Gateway with tool registry, wallet provider, tx_queue, and skill registry for channels
     log::info!("Initializing Gateway");
     let gateway = Arc::new(Gateway::new_with_tools_wallet_and_tx_queue(
         db.clone(),
         tool_registry.clone(),
         wallet_provider.clone(),
         Some(tx_queue.clone()),
+        Some(skill_registry.clone()),
     ));
 
     // Initialize Execution Tracker for progress display
@@ -1276,6 +1277,7 @@ async fn main() -> std::io::Result<()> {
         execution_tracker.clone(),
         scheduler_config,
         wallet_provider.clone(),
+        Some(skill_registry.clone()),
     ));
 
     // Start scheduler background task

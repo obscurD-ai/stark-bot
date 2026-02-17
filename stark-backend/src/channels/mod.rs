@@ -34,6 +34,7 @@ pub struct ChannelManager {
     /// Either EnvWalletProvider (Standard mode) or FlashWalletProvider (Flash mode)
     wallet_provider: Option<Arc<dyn crate::wallet::WalletProvider>>,
     tx_queue: Option<Arc<TxQueueManager>>,
+    skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
 }
 
 impl ChannelManager {
@@ -47,6 +48,7 @@ impl ChannelManager {
             execution_tracker,
             wallet_provider: None,
             tx_queue: None,
+            skill_registry: None,
         }
     }
 
@@ -76,12 +78,19 @@ impl ChannelManager {
             execution_tracker,
             wallet_provider,
             tx_queue: None,
+            skill_registry: None,
         }
     }
 
     /// Set the transaction queue manager for web3 transactions
     pub fn with_tx_queue(mut self, tx_queue: Arc<TxQueueManager>) -> Self {
         self.tx_queue = Some(tx_queue);
+        self
+    }
+
+    /// Set the skill registry for skill-based tools (use_skill, manage_skills)
+    pub fn with_skill_registry(mut self, skill_registry: Arc<crate::skills::SkillRegistry>) -> Self {
+        self.skill_registry = Some(skill_registry);
         self
     }
 
@@ -138,12 +147,13 @@ impl ChannelManager {
 
         // Create dispatcher with or without tools (and wallet provider for x402 payment support)
         let dispatcher = if let Some(ref tool_registry) = self.tool_registry {
-            let mut disp = MessageDispatcher::new_with_wallet(
+            let mut disp = MessageDispatcher::new_with_wallet_and_skills(
                 self.db.clone(),
                 self.broadcaster.clone(),
                 tool_registry.clone(),
                 self.execution_tracker.clone(),
                 self.wallet_provider.clone(),
+                self.skill_registry.clone(),
             );
             // Add tx_queue if available (needed for web3 transactions)
             if let Some(ref tx_queue) = self.tx_queue {

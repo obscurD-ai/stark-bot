@@ -73,6 +73,7 @@ pub struct Scheduler {
     config: SchedulerConfig,
     /// Wallet provider for x402 payments in scheduled tasks (heartbeats, cron jobs)
     wallet_provider: Option<Arc<dyn wallet::WalletProvider>>,
+    skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
 }
 
 impl Scheduler {
@@ -83,6 +84,7 @@ impl Scheduler {
         execution_tracker: Arc<crate::execution::ExecutionTracker>,
         config: SchedulerConfig,
         wallet_provider: Option<Arc<dyn wallet::WalletProvider>>,
+        skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
     ) -> Self {
         Scheduler {
             db,
@@ -91,6 +93,7 @@ impl Scheduler {
             execution_tracker,
             config,
             wallet_provider,
+            skill_registry,
         }
     }
 
@@ -104,7 +107,7 @@ impl Scheduler {
         config: SchedulerConfig,
         _db_url: String,
     ) -> Self {
-        Self::new(db, dispatcher, broadcaster, execution_tracker, config, None)
+        Self::new(db, dispatcher, broadcaster, execution_tracker, config, None, None)
     }
 
     /// Start the scheduler background task
@@ -345,6 +348,7 @@ impl Scheduler {
             execution_tracker: Arc::clone(&self.execution_tracker),
             config: self.config.clone(),
             wallet_provider: self.wallet_provider.clone(),
+            skill_registry: self.skill_registry.clone(),
         }
     }
 
@@ -849,6 +853,7 @@ impl Scheduler {
         let db = Arc::clone(&self.db);
         let broadcaster = Arc::clone(&self.broadcaster);
         let wallet_provider_clone = self.wallet_provider.clone();
+        let skill_registry_clone = self.skill_registry.clone();
 
         // Spawn the heartbeat in a background task
         tokio::spawn(async move {
@@ -864,15 +869,13 @@ impl Scheduler {
             let tracker = Arc::new(ExecutionTracker::new(broadcaster.clone()));
             let tool_registry = Arc::new(ToolRegistry::new());
 
-            // Use the wallet provider from the scheduler (works in both Standard and Flash mode)
-            let wallet_provider = wallet_provider_clone.clone();
-
-            let dispatcher = Arc::new(MessageDispatcher::new_with_wallet(
+            let dispatcher = Arc::new(MessageDispatcher::new_with_wallet_and_skills(
                 db.clone(),
                 broadcaster.clone(),
                 tool_registry,
                 tracker,
-                wallet_provider,
+                wallet_provider_clone.clone(),
+                skill_registry_clone,
             ));
 
             // Execute with timeout

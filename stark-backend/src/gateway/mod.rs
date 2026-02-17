@@ -33,26 +33,25 @@ impl Gateway {
 
     /// Create a new Gateway with tool registry support
     pub fn new_with_tools(db: Arc<Database>, tool_registry: Arc<ToolRegistry>) -> Self {
-        Self::new_with_tools_and_wallet(db, tool_registry, None)
+        Self::new_with_tools_wallet_and_tx_queue(db, tool_registry, None, None, None)
     }
 
     /// Create a new Gateway with tool registry and wallet provider for x402 payments
-    /// The wallet_provider encapsulates both Standard mode (EnvWalletProvider)
-    /// and Flash mode (FlashWalletProvider)
     pub fn new_with_tools_and_wallet(
         db: Arc<Database>,
         tool_registry: Arc<ToolRegistry>,
         wallet_provider: Option<Arc<dyn WalletProvider>>,
     ) -> Self {
-        Self::new_with_tools_wallet_and_tx_queue(db, tool_registry, wallet_provider, None)
+        Self::new_with_tools_wallet_and_tx_queue(db, tool_registry, wallet_provider, None, None)
     }
 
-    /// Create a new Gateway with tool registry, wallet provider, and transaction queue support
+    /// Create a fully-configured Gateway with all optional subsystems
     pub fn new_with_tools_wallet_and_tx_queue(
         db: Arc<Database>,
         tool_registry: Arc<ToolRegistry>,
         wallet_provider: Option<Arc<dyn WalletProvider>>,
         tx_queue: Option<Arc<TxQueueManager>>,
+        skill_registry: Option<Arc<crate::skills::SkillRegistry>>,
     ) -> Self {
         let broadcaster = Arc::new(EventBroadcaster::new());
         let mut channel_manager = ChannelManager::new_with_tools_and_wallet(
@@ -61,9 +60,11 @@ impl Gateway {
             tool_registry,
             wallet_provider,
         );
-        // Add tx_queue if provided (needed for web3 transactions in channels)
         if let Some(tq) = tx_queue {
             channel_manager = channel_manager.with_tx_queue(tq);
+        }
+        if let Some(sr) = skill_registry {
+            channel_manager = channel_manager.with_skill_registry(sr);
         }
         let channel_manager = Arc::new(channel_manager);
 

@@ -67,7 +67,7 @@
         description: "Social media, messaging, scheduling, marketing, image/video generation",
         tool_groups: ["system", "web", "filesystem", "messaging", "social", "memory", "exec", "finance"],
         skill_tags: [
-            "general", "all", "identity", "eip8004", "registration",
+            "general", "all", "dns", "identity", "eip8004", "registration",
             "social", "marketing", "messaging", "moltx", "scheduling", "communication",
             "social-media", "secretary", "journal", "discord", "telegram", "twitter", "4claw",
             "x402", "cron", "moltbook", "publishing", "content",

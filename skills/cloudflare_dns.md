@@ -1,7 +1,7 @@
 ---
 name: cloudflare_dns
 description: "Manage Cloudflare DNS and Redirect Rules — list zones, create/update/delete DNS records, and set up URL redirects."
-version: 1.2.0
+version: 1.3.0
 author: starkbot
 homepage: https://cloudflare.com
 metadata: {"requires_auth": true, "clawdbot":{"emoji":"🌐"}}
@@ -131,6 +131,7 @@ The `proxied` field controls whether traffic routes through Cloudflare's network
 ## Creating Records by Type
 
 **IMPORTANT: Always confirm with the user before creating records.**
+**IMPORTANT: Always respect the user's `proxied` setting. If they say "not proxied" or "DNS only" or "grey cloud", set `proxied: false`. NEVER default to `proxied: true` unless the user explicitly asks for it or doesn't specify and the record is for HTTP/HTTPS web traffic.**
 
 ### A Record (IPv4 address)
 
@@ -161,12 +162,13 @@ extract_mode: raw
 url: https://api.cloudflare.com/client/v4/zones/ZONE_ID/dns_records
 method: POST
 headers: {"Authorization": "Bearer $CLOUDFLARE_API_TOKEN", "Content-Type": "application/json"}
-body: {"type": "CNAME", "name": "www.example.com", "content": "example.com", "ttl": 1, "proxied": true}
+body: {"type": "CNAME", "name": "www.example.com", "content": "example.com", "ttl": 1, "proxied": false}
 extract_mode: raw
 ```
 
 - `content` is the target hostname (no trailing dot needed).
 - Cloudflare supports CNAME flattening at the zone apex.
+- **Set `proxied` based on what the user requests.** Use `false` for DNS-only (grey cloud), `true` for Cloudflare proxy (orange cloud). Never override the user's explicit choice.
 
 ### MX Record (mail server)
 
@@ -189,11 +191,11 @@ extract_mode: raw
 url: https://api.cloudflare.com/client/v4/zones/ZONE_ID/dns_records
 method: POST
 headers: {"Authorization": "Bearer $CLOUDFLARE_API_TOKEN", "Content-Type": "application/json"}
-body: {"type": "TXT", "name": "example.com", "content": "v=spf1 include:_spf.google.com ~all", "ttl": 1}
+body: {"type": "TXT", "name": "example.com", "content": "\"v=spf1 include:_spf.google.com ~all\"", "ttl": 1}
 extract_mode: raw
 ```
 
-- `content` is the full TXT value as a single string (no wrapping quotes needed — the API handles quoting).
+- **IMPORTANT: The `content` value MUST be wrapped in double quotes inside the string** (e.g., `"\"v=spf1 ...\""`). This is how TXT records work in DNS — the value is a quoted string. Omitting the inner quotes will cause validation failures or incorrect records.
 - Common uses: SPF, DKIM, DMARC, domain verification, site verification.
 - For DKIM: name is usually `selector._domainkey.example.com`.
 - For DMARC: name is `_dmarc.example.com`.
@@ -386,7 +388,7 @@ extract_mode: raw
 3. **Confirm all mutations** — always ask the user before creating, updating, or deleting
 4. **Use `per_page=100`** on all list queries to minimize pagination
 5. **Check `result_info.total_pages`** — if > 1, you need to paginate
-6. **Use `proxied: true`** for web-facing A/AAAA/CNAME records (CDN + DDoS protection)
+6. **Respect the user's `proxied` preference** — if the user specifies proxied or not proxied, use exactly what they asked for. Do NOT override their choice. Only default to `proxied: true` if the user doesn't specify and the record is web-facing HTTP/HTTPS.
 7. **Never proxy MX targets** — mail servers need the real IP
 8. **Use `ttl: 1` (automatic)** for proxied records, explicit TTLs for DNS-only records
 9. **Search by type+name** to find the exact record before updating

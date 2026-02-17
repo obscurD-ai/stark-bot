@@ -835,6 +835,11 @@ pub struct ToolConfig {
     pub deny_list: Vec<String>,     // Specific tools to deny
     pub allowed_groups: Vec<String>, // Tool groups to allow
     pub denied_groups: Vec<String>,  // Tool groups to deny
+    /// Skill names explicitly granted by a special role at runtime.
+    /// Merged with subtype tag-filtered skills in available_skills_for_context().
+    /// Not persisted — only populated during dispatch for special role sessions.
+    #[serde(default)]
+    pub extra_skill_names: Vec<String>,
 }
 
 impl Default for ToolConfig {
@@ -850,6 +855,7 @@ impl Default for ToolConfig {
             deny_list: vec![],
             allowed_groups: ToolGroup::all().iter().map(|g| g.as_str().to_string()).collect(),
             denied_groups: vec![],
+            extra_skill_names: vec![],
         }
     }
 }
@@ -895,6 +901,7 @@ impl ToolConfig {
             deny_list: vec![],
             allowed_groups: vec!["web".to_string()],
             denied_groups: vec![],
+            extra_skill_names: vec![],
         }
     }
 

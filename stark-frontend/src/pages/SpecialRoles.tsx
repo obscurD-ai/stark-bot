@@ -368,13 +368,13 @@ export default function SpecialRoles() {
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">
                           Allowed Skills (comma-separated)
-                          <span className="text-slate-600 ml-1">-- skill tags available to this role</span>
+                          <span className="text-slate-600 ml-1">-- skill names available to this role (required tools are auto-granted)</span>
                         </label>
                         <input
                           type="text"
                           value={editSkills}
                           onChange={e => setEditSkills(e.target.value)}
-                          placeholder="crypto, defi"
+                          placeholder="super_router, weather"
                           className="w-full bg-slate-900/50 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-stark-500"
                         />
                       </div>
@@ -496,13 +496,19 @@ export default function SpecialRoles() {
           By default, safe mode channels are fully locked down to a fixed set of read-only tools (say_to_user, web_fetch, token_lookup, memory/discord/telegram read, etc.). No special roles exist out of the box.
         </p>
         <p>
-          <strong className="text-slate-300">Roles</strong> are named permission bundles (e.g. <code className="text-xs bg-slate-700 px-1 rounded">power_user</code>) that list extra tool names to grant. They do nothing until assigned to a user.
+          <strong className="text-slate-300">Roles</strong> are named permission bundles (e.g. <code className="text-xs bg-slate-700 px-1 rounded">power_user</code>) that grant extra tools and skills by name. They do nothing until assigned to a user.
         </p>
         <p>
           <strong className="text-slate-300">Assignments</strong> link a role to a specific (channel type, user ID) pair. Each user can have at most one role per channel type.
         </p>
         <p>
-          When an assigned user messages a safe-mode channel, the dispatcher appends the role's extra tools to their allow list. Unassigned users get vanilla safe mode. Sessions with enriched permissions show a badge in the session list.
+          <strong className="text-slate-300">Allowed Tools</strong> are standalone tools added directly to the user's safe mode allow list (e.g. giving someone <code className="text-xs bg-slate-700 px-1 rounded">web_fetch</code> access without a specific skill).
+        </p>
+        <p>
+          <strong className="text-slate-300">Allowed Skills</strong> are granted by exact skill name. When a skill is granted, its required tools are <em>automatically</em> added to the allow list &mdash; you don't need to add them separately. For example, granting the <code className="text-xs bg-slate-700 px-1 rounded">super_router</code> skill auto-grants its required <code className="text-xs bg-slate-700 px-1 rounded">x402_fetch</code> tool.
+        </p>
+        <p>
+          When an assigned user messages a safe-mode channel, the dispatcher enriches their session with the role's tools and skills. Unassigned users get vanilla safe mode. Sessions with enriched permissions show a badge in the session list.
         </p>
       </div>
 

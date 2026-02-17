@@ -1,3 +1,4 @@
+use crate::channels::types::ChannelType;
 use crate::models::SpecialRole;
 use crate::tools::registry::Tool;
 use crate::tools::types::{
@@ -281,6 +282,14 @@ impl Tool for ModifySpecialRoleTool {
                     Some(ct) => ct.as_str(),
                     None => return ToolResult::error("'channel_type' is required for assign_role"),
                 };
+                // Validate channel_type
+                if ChannelType::from_str(channel_type).is_none() {
+                    let valid: Vec<&str> = ChannelType::all().iter().map(|ct| ct.as_str()).collect();
+                    return ToolResult::error(format!(
+                        "Invalid channel_type '{}'. Must be one of: {}",
+                        channel_type, valid.join(", ")
+                    ));
+                }
                 let user_id = match &params.user_id {
                     Some(uid) => uid.as_str(),
                     None => return ToolResult::error("'user_id' is required for assign_role"),

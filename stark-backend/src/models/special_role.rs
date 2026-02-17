@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 /// A named special role that grants additional tools/skills to safe-mode users.
+/// Tools and skills are granted by their exact names (not tags).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpecialRole {
     pub name: String,
+    /// Individual tool names granted to this role (e.g. ["x402_fetch", "web_fetch"])
     pub allowed_tools: Vec<String>,
+    /// Individual skill names granted to this role (e.g. ["super_router", "weather"])
     pub allowed_skills: Vec<String>,
     pub description: Option<String>,
     pub created_at: String,
@@ -22,10 +25,13 @@ pub struct SpecialRoleAssignment {
 }
 
 /// Grant set for a specific user — the single role's tools/skills (one role per user/channel).
+/// Both tools and skills are referenced by exact name.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpecialRoleGrants {
     pub role_name: Option<String>,
+    /// Individual tool names granted (e.g. ["x402_fetch"])
     pub extra_tools: Vec<String>,
+    /// Individual skill names granted (e.g. ["super_router"])
     pub extra_skills: Vec<String>,
 }
 

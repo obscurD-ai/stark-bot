@@ -746,6 +746,50 @@ impl MessageDispatcher {
                             tool_config.allow_list.push(tool_name.clone());
                         }
                     }
+
+                    // Enrich with skill-required tools from granted skill names.
+                    // Each granted skill's requires_tools are auto-added to the allow list
+                    // so the user can actually invoke those skills.
+                    if !grants.extra_skills.is_empty() {
+                        if !tool_config.allow_list.iter().any(|t| t == "use_skill") {
+                            tool_config.allow_list.push("use_skill".to_string());
+                        }
+                        tool_config.extra_skill_names = grants.extra_skills.clone();
+                        let mut auto_tools: Vec<String> = Vec::new();
+                        for skill_name in &grants.extra_skills {
+                            match self.db.get_enabled_skill_by_name(skill_name) {
+                                Ok(Some(skill)) => {
+                                    for req_tool in &skill.requires_tools {
+                                        if !tool_config.allow_list.contains(req_tool)
+                                            && !auto_tools.contains(req_tool)
+                                        {
+                                            auto_tools.push(req_tool.clone());
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    log::warn!(
+                                        "[DISPATCH] Special role grants skill '{}' but it doesn't exist or is disabled",
+                                        skill_name
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "[DISPATCH] Failed to look up skill '{}' for special role: {}",
+                                        skill_name, e
+                                    );
+                                }
+                            }
+                        }
+                        if !auto_tools.is_empty() {
+                            log::info!(
+                                "[DISPATCH] Special role skill enrichment for {}: auto-granted tools {:?} from skills {:?}",
+                                message.user_id, auto_tools, grants.extra_skills
+                            );
+                            tool_config.allow_list.extend(auto_tools);
+                        }
+                    }
+
                     // Store the special role name on the session for UI badge display
                     if let Some(role_name) = &grants.role_name {
                         if let Err(e) = self.db.set_session_special_role(session.id, role_name) {
@@ -1559,25 +1603,83 @@ impl MessageDispatcher {
         None
     }
 
-    /// Create a "use_skill" tool definition showing ALL enabled skills.
-    /// The subtype_key param is accepted for call-site consistency but not used
-    /// for filtering — the AI can see all skills and switch subtypes if needed.
-    fn create_skill_tool_definition_for_subtype(
+    /// Returns the list of skills available for the given context.
+    ///
+    /// Filtering layers:
+    /// 1. Only enabled skills from the database
+    /// 2. Only skills whose tags intersect with the subtype's `skill_tags`
+    /// 3. In safe mode, only skills whose `requires_tools` are all available
+    ///    under the current tool config
+    fn available_skills_for_context(
         &self,
-        _subtype_key: &str,
-    ) -> Option<ToolDefinition> {
-        use crate::tools::{PropertySchema, ToolGroup, ToolInputSchema};
+        subtype_key: &str,
+        tool_config: &ToolConfig,
+    ) -> Vec<crate::skills::types::DbSkill> {
+        use crate::tools::ToolProfile;
 
         let skills = match self.db.list_enabled_skills() {
             Ok(s) => s,
             Err(e) => {
-                log::warn!("[SKILL] Failed to query enabled skills for use_skill tool: {}", e);
-                return None;
+                log::warn!("[SKILL] Failed to query enabled skills: {}", e);
+                return vec![];
             }
         };
 
+        // Filter by subtype's skill_tags OR explicit grant by name.
+        // A skill is visible if:
+        //   - any of its tags match the subtype's allowed tags, OR
+        //   - it was explicitly granted by name via a special role
+        let allowed_tags = agent_types::allowed_skill_tags_for_key(subtype_key);
+        let skills: Vec<_> = skills
+            .into_iter()
+            .filter(|skill| {
+                skill.tags.iter().any(|tag| allowed_tags.contains(tag))
+                    || tool_config.extra_skill_names.contains(&skill.name)
+            })
+            .collect();
+
+        // In safe mode, additionally filter out skills whose requires_tools
+        // include tools that aren't available under the safe mode config
+        if tool_config.profile == ToolProfile::SafeMode {
+            skills
+                .into_iter()
+                .filter(|skill| {
+                    // Skills with no required tools are fine (instruction-only)
+                    skill.requires_tools.is_empty()
+                        || skill.requires_tools.iter().all(|tool_name| {
+                            self.tool_registry
+                                .get(tool_name)
+                                .map(|tool| {
+                                    tool_config.is_tool_allowed(
+                                        &tool.definition().name,
+                                        tool.group(),
+                                    )
+                                })
+                                .unwrap_or(false)
+                        })
+                })
+                .collect()
+        } else {
+            skills
+        }
+    }
+
+    /// Build the `use_skill` pseudo-tool definition from the skills available
+    /// in the current context (subtype + tool config).
+    fn create_skill_tool_definition_for_subtype(
+        &self,
+        subtype_key: &str,
+        tool_config: &ToolConfig,
+    ) -> Option<ToolDefinition> {
+        use crate::tools::{PropertySchema, ToolGroup, ToolInputSchema};
+
+        let skills = self.available_skills_for_context(subtype_key, tool_config);
+
         if skills.is_empty() {
-            log::warn!("[SKILL] No enabled skills in DB — use_skill pseudo-tool will NOT be available");
+            log::debug!(
+                "[SKILL] No skills available for subtype '{}' — use_skill will NOT be injected",
+                subtype_key
+            );
             return None;
         }
 
@@ -1667,9 +1769,11 @@ impl MessageDispatcher {
                 .get_tool_definitions_for_subtype(tool_config, subtype_key)
         };
 
-        // Only inject use_skill if the subtype has skill access (non-empty skill_tags)
-        if !agent_types::allowed_skill_tags_for_key(subtype_key).is_empty() {
-            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype_key) {
+        // Inject use_skill if subtype has skill_tags OR if enriched via special role
+        let has_skill_tags = !agent_types::allowed_skill_tags_for_key(subtype_key).is_empty();
+        let use_skill_allowed = tool_config.allow_list.iter().any(|t| t == "use_skill");
+        if has_skill_tags || use_skill_allowed {
+            if let Some(skill_tool) = self.create_skill_tool_definition_for_subtype(subtype_key, tool_config) {
                 tools.push(skill_tool);
             }
         }

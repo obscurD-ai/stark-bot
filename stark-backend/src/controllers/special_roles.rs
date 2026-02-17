@@ -1,6 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use serde::Deserialize;
 
+use crate::channels::types::ChannelType;
 use crate::models::SpecialRole;
 use crate::AppState;
 
@@ -124,6 +125,33 @@ async fn create_role(
         }));
     }
 
+    // Validate tool names exist in registry
+    let unknown_tools: Vec<&String> = body.allowed_tools.iter()
+        .filter(|t| data.tool_registry.get(t).is_none())
+        .collect();
+    if !unknown_tools.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!("Unknown tool(s): {}. Use GET /api/tools to see available tools.", unknown_tools.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(", "))
+        }));
+    }
+
+    // Validate skill names exist in database
+    if !body.allowed_skills.is_empty() {
+        let unknown_skills: Vec<&String> = body.allowed_skills.iter()
+            .filter(|s| {
+                data.db.get_enabled_skill_by_name(s)
+                    .ok()
+                    .flatten()
+                    .is_none()
+            })
+            .collect();
+        if !unknown_skills.is_empty() {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Unknown or disabled skill(s): {}. Use GET /api/skills to see available skills.", unknown_skills.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+            }));
+        }
+    }
+
     let role = SpecialRole {
         name,
         allowed_tools: body.allowed_tools.clone(),
@@ -184,6 +212,35 @@ async fn update_role(
             }));
         }
     };
+
+    // Validate tool names if provided
+    if let Some(ref tools) = body.allowed_tools {
+        let unknown_tools: Vec<&String> = tools.iter()
+            .filter(|t| data.tool_registry.get(t).is_none())
+            .collect();
+        if !unknown_tools.is_empty() {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Unknown tool(s): {}. Use GET /api/tools to see available tools.", unknown_tools.iter().map(|t| t.as_str()).collect::<Vec<_>>().join(", "))
+            }));
+        }
+    }
+
+    // Validate skill names if provided
+    if let Some(ref skills) = body.allowed_skills {
+        let unknown_skills: Vec<&String> = skills.iter()
+            .filter(|s| {
+                data.db.get_enabled_skill_by_name(s)
+                    .ok()
+                    .flatten()
+                    .is_none()
+            })
+            .collect();
+        if !unknown_skills.is_empty() {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "error": format!("Unknown or disabled skill(s): {}. Use GET /api/skills to see available skills.", unknown_skills.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+            }));
+        }
+    }
 
     let updated = SpecialRole {
         name: existing.name,
@@ -293,6 +350,18 @@ async fn create_assignment(
             }));
         }
         _ => {}
+    }
+
+    // Validate channel_type
+    if ChannelType::from_str(&body.channel_type).is_none() {
+        let valid: Vec<&str> = ChannelType::all().iter().map(|ct| ct.as_str()).collect();
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "error": format!(
+                "Invalid channel_type '{}'. Must be one of: {}",
+                body.channel_type,
+                valid.join(", ")
+            )
+        }));
     }
 
     // Verify role exists

@@ -35,6 +35,7 @@ impl Database {
                     deny_list: serde_json::from_str(&deny_list).unwrap_or_default(),
                     allowed_groups: serde_json::from_str(&allowed_groups).unwrap_or_default(),
                     denied_groups: serde_json::from_str(&denied_groups).unwrap_or_default(),
+                    extra_skill_names: vec![],
                 })
             })
             .ok();
@@ -71,6 +72,7 @@ impl Database {
                     deny_list: serde_json::from_str(&deny_list).unwrap_or_default(),
                     allowed_groups: serde_json::from_str(&allowed_groups).unwrap_or_default(),
                     denied_groups: serde_json::from_str(&denied_groups).unwrap_or_default(),
+                    extra_skill_names: vec![],
                 })
             })
             .ok();

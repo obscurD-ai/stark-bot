@@ -81,6 +81,13 @@ pub struct SubagentInfo {
     pub started_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
+    pub parent_session_id: i64,
+}
+
+/// Query parameters for listing subagents
+#[derive(Debug, Deserialize)]
+pub struct ListSubagentsQuery {
+    pub session_id: Option<i64>,
 }
 
 /// Response listing subagents
@@ -360,6 +367,7 @@ async fn get_execution_status(
 async fn list_subagents(
     state: web::Data<AppState>,
     req: HttpRequest,
+    query: web::Query<ListSubagentsQuery>,
 ) -> impl Responder {
     // Validate session token
     let token = req
@@ -386,11 +394,19 @@ async fn list_subagents(
         });
     }
 
-    // Get subagents for the web channel
+    // Get subagents for the web channel, optionally filtered by session
+    let filter_session_id = query.session_id;
     let subagents = if let Some(subagent_manager) = state.dispatcher.subagent_manager() {
         match subagent_manager.list_by_channel(WEB_CHANNEL_ID) {
             Ok(agents) => agents
                 .into_iter()
+                .filter(|ctx| {
+                    if let Some(sid) = filter_session_id {
+                        ctx.parent_session_id == sid
+                    } else {
+                        true
+                    }
+                })
                 .map(|ctx| SubagentInfo {
                     id: ctx.id,
                     label: ctx.label,
@@ -402,6 +418,7 @@ async fn list_subagents(
                     status: format!("{:?}", ctx.status),
                     started_at: ctx.started_at.to_rfc3339(),
                     session_id: ctx.session_id,
+                    parent_session_id: ctx.parent_session_id,
                 })
                 .collect(),
             Err(_) => vec![],

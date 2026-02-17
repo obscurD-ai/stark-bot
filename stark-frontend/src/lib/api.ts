@@ -1364,8 +1364,9 @@ export interface SubagentResponse {
   error?: string;
 }
 
-export async function listSubagents(): Promise<SubagentListResponse> {
-  return apiFetch('/chat/subagents');
+export async function listSubagents(sessionId?: number): Promise<SubagentListResponse> {
+  const params = sessionId != null ? `?session_id=${sessionId}` : '';
+  return apiFetch(`/chat/subagents${params}`);
 }
 
 export async function cancelSubagent(subagentId: string): Promise<SubagentResponse> {

@@ -1092,11 +1092,11 @@ export default function AgentChat() {
     };
   }, [isLoading]);
 
-  // Fetch initial subagent list when connected
+  // Fetch initial subagent list when connected or session changes
   useEffect(() => {
     if (connected) {
-      console.log('[Subagent] Fetching initial subagent list...');
-      listSubagents().then((response) => {
+      console.log('[Subagent] Fetching subagent list for session:', dbSessionId);
+      listSubagents(dbSessionId ?? undefined).then((response) => {
         console.log('[Subagent] Initial fetch response:', response);
         if (response.success) {
           setSubagents(response.subagents);
@@ -1105,7 +1105,7 @@ export default function AgentChat() {
         console.error('[Subagent] Failed to fetch subagents:', err);
       });
     }
-  }, [connected]);
+  }, [connected, dbSessionId]);
 
   // Check execution status on mount/reconnect for page refresh resilience
   useEffect(() => {
@@ -1191,6 +1191,7 @@ export default function AgentChat() {
           localStorage.removeItem(STORAGE_KEY_SUBTYPE);
           setAgentMode(null);
           setAgentSubtype(null);
+          setSubagents([]);
 
           // Clear all messages and show welcome
           setMessages([{
@@ -1221,6 +1222,7 @@ export default function AgentChat() {
           localStorage.removeItem(STORAGE_KEY_SUBTYPE);
           setAgentMode(null);
           setAgentSubtype(null);
+          setSubagents([]);
 
           setMessages([{
             id: crypto.randomUUID(),
@@ -1250,6 +1252,7 @@ export default function AgentChat() {
           localStorage.removeItem(STORAGE_KEY_SUBTYPE);
           setAgentMode(null);
           setAgentSubtype(null);
+          setSubagents([]);
           setMessages([]);
         }
       } catch (err) {
@@ -1795,6 +1798,7 @@ export default function AgentChat() {
                     localStorage.removeItem(STORAGE_KEY_SUBTYPE);
                     setAgentMode(null);
                     setAgentSubtype(null);
+                    setSubagents([]);
                     setMessages([]);
                   }
                 } catch (err) {

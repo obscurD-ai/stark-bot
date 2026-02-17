@@ -208,6 +208,9 @@ impl Tool for VerifyTxBroadcastTool {
             .map(|r| decode_erc20_transfers(&r.logs))
             .unwrap_or_default();
 
+        // Build token address → decimals map from registers for human-readable formatting
+        let token_decimals_map = build_token_decimals_map(context);
+
         // Build the transaction summary
         let mut summary = String::new();
         summary.push_str(&format!("Status: {}\n", final_status.to_uppercase()));
@@ -229,9 +232,10 @@ impl Tool for VerifyTxBroadcastTool {
         if !transfers.is_empty() {
             summary.push_str("\nToken Transfers:\n");
             for t in &transfers {
+                let display_amount = format_transfer_amount(&t.amount_raw, &t.token, &token_decimals_map);
                 summary.push_str(&format!(
                     "  {} → {} : {} (token: {})\n",
-                    short_addr(&t.from), short_addr(&t.to), t.amount_raw, short_addr(&t.token)
+                    short_addr(&t.from), short_addr(&t.to), display_amount, short_addr(&t.token)
                 ));
             }
         }
@@ -304,9 +308,10 @@ impl Tool for VerifyTxBroadcastTool {
         if !transfers.is_empty() {
             msg.push_str("\nToken transfers detected:\n");
             for t in &transfers {
+                let display_amount = format_transfer_amount(&t.amount_raw, &t.token, &token_decimals_map);
                 msg.push_str(&format!(
                     "  {} → {} : {} (token {})\n",
-                    short_addr(&t.from), short_addr(&t.to), t.amount_raw, short_addr(&t.token)
+                    short_addr(&t.from), short_addr(&t.to), display_amount, short_addr(&t.token)
                 ));
             }
         }
@@ -331,12 +336,16 @@ impl Tool for VerifyTxBroadcastTool {
             "verified": verified,
             "network": network,
             "explorer_url": explorer_url,
-            "token_transfers": transfers.iter().map(|t| json!({
-                "from": t.from,
-                "to": t.to,
-                "token": t.token,
-                "amount_raw": t.amount_raw,
-            })).collect::<Vec<_>>(),
+            "token_transfers": transfers.iter().map(|t| {
+                let display = format_transfer_amount(&t.amount_raw, &t.token, &token_decimals_map);
+                json!({
+                    "from": t.from,
+                    "to": t.to,
+                    "token": t.token,
+                    "amount_raw": t.amount_raw,
+                    "amount": display,
+                })
+            }).collect::<Vec<_>>(),
         }))
     }
 
@@ -479,6 +488,67 @@ fn parse_post_tx_response(response: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Build a map of lowercase token address → decimals from registers.
+/// Looks for sell_token/sell_token_decimals and buy_token/buy_token_decimals pairs.
+fn build_token_decimals_map(context: &ToolContext) -> HashMap<String, u8> {
+    let mut map = HashMap::new();
+    for (addr_key, dec_key) in &[
+        ("sell_token", "sell_token_decimals"),
+        ("buy_token", "buy_token_decimals"),
+    ] {
+        if let (Some(addr_val), Some(dec_val)) = (
+            context.registers.get(*addr_key),
+            context.registers.get(*dec_key),
+        ) {
+            let addr = addr_val.as_str().unwrap_or_default().to_lowercase();
+            let decimals = dec_val.as_u64().unwrap_or(0) as u8;
+            if !addr.is_empty() && decimals > 0 {
+                map.insert(addr, decimals);
+            }
+        }
+    }
+    map
+}
+
+/// Format a raw token amount using decimals if the token address is in our map.
+/// Returns human-readable amount like "159,432.57" or falls back to raw if unknown.
+fn format_transfer_amount(
+    amount_raw: &str,
+    token_addr: &str,
+    token_decimals: &HashMap<String, u8>,
+) -> String {
+    let normalized = token_addr.to_lowercase();
+    if let Some(&decimals) = token_decimals.get(&normalized) {
+        if let Ok(raw) = amount_raw.parse::<u128>() {
+            let divisor = 10u128.pow(decimals as u32);
+            let whole = raw / divisor;
+            let frac = raw % divisor;
+            if frac == 0 {
+                return format_with_commas(whole);
+            }
+            let frac_str = format!("{:0>width$}", frac, width = decimals as usize);
+            let trimmed = frac_str.trim_end_matches('0');
+            // Cap fractional display at 6 digits
+            let display_frac = if trimmed.len() > 6 { &trimmed[..6] } else { trimmed };
+            return format!("{}.{}", format_with_commas(whole), display_frac);
+        }
+    }
+    // Fallback: raw amount
+    amount_raw.to_string()
+}
+
+fn format_with_commas(n: u128) -> String {
+    let s = n.to_string();
+    let mut result = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result
+}
+
 fn build_client_from_db(context: &ToolContext) -> Option<AiClient> {
     let db = context.database.as_ref()?;
     let settings = db.get_active_agent_settings().ok()??;
@@ -574,5 +644,55 @@ mod tests {
             short_addr("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
             "0x8335...2913"
         );
+    }
+
+    // ── format_transfer_amount ────────────────────────────────────
+
+    #[test]
+    fn test_format_amount_18_decimals() {
+        let mut map = HashMap::new();
+        map.insert("0xtoken".to_string(), 18u8);
+
+        // 159,500,000,000,000,000,000,000 raw = 159,500 tokens with 18 decimals
+        assert_eq!(
+            format_transfer_amount("159500000000000000000000", "0xTOKEN", &map),
+            "159,500"
+        );
+    }
+
+    #[test]
+    fn test_format_amount_6_decimals() {
+        let mut map = HashMap::new();
+        map.insert("0xusdc".to_string(), 6u8);
+
+        // 1000000 raw = 1 USDC
+        assert_eq!(
+            format_transfer_amount("1000000", "0xUSDC", &map),
+            "1"
+        );
+
+        // 1500000 raw = 1.5 USDC
+        assert_eq!(
+            format_transfer_amount("1500000", "0xUSDC", &map),
+            "1.5"
+        );
+    }
+
+    #[test]
+    fn test_format_amount_unknown_token_returns_raw() {
+        let map = HashMap::new();
+        assert_eq!(
+            format_transfer_amount("159500000000000000000000", "0xunknown", &map),
+            "159500000000000000000000"
+        );
+    }
+
+    #[test]
+    fn test_format_with_commas() {
+        assert_eq!(format_with_commas(0), "0");
+        assert_eq!(format_with_commas(999), "999");
+        assert_eq!(format_with_commas(1000), "1,000");
+        assert_eq!(format_with_commas(1234567), "1,234,567");
+        assert_eq!(format_with_commas(159500), "159,500");
     }
 }

@@ -130,6 +130,7 @@ impl SubAgentManager {
             &context.task,
             context.parent_subagent_id.as_deref(),
             context.depth,
+            context.parent_session_id,
         ));
 
         log::info!(
@@ -218,6 +219,7 @@ impl SubAgentManager {
                         &response,
                         final_context.parent_subagent_id.as_deref(),
                         final_context.depth,
+                        final_context.parent_session_id,
                     ));
                 }
                 Err(error) => {
@@ -235,6 +237,7 @@ impl SubAgentManager {
                         final_context.error.as_deref().unwrap_or(&error),
                         final_context.parent_subagent_id.as_deref(),
                         final_context.depth,
+                        final_context.parent_session_id,
                     ));
                 }
             }
@@ -899,6 +902,7 @@ impl GatewayEvent {
         task: &str,
         parent_subagent_id: Option<&str>,
         depth: u32,
+        session_id: i64,
     ) -> Self {
         Self::new(
             "subagent.spawned",
@@ -909,6 +913,7 @@ impl GatewayEvent {
                 "task": if task.len() > 200 { format!("{}...", &task[..200]) } else { task.to_string() },
                 "parent_subagent_id": parent_subagent_id,
                 "depth": depth,
+                "session_id": session_id,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )
@@ -922,6 +927,7 @@ impl GatewayEvent {
         result: &str,
         parent_subagent_id: Option<&str>,
         depth: u32,
+        session_id: i64,
     ) -> Self {
         Self::new(
             "subagent.completed",
@@ -932,6 +938,7 @@ impl GatewayEvent {
                 "result": if result.len() > 500 { format!("{}...", &result[..500]) } else { result.to_string() },
                 "parent_subagent_id": parent_subagent_id,
                 "depth": depth,
+                "session_id": session_id,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )
@@ -945,6 +952,7 @@ impl GatewayEvent {
         error: &str,
         parent_subagent_id: Option<&str>,
         depth: u32,
+        session_id: i64,
     ) -> Self {
         Self::new(
             "subagent.failed",
@@ -955,6 +963,7 @@ impl GatewayEvent {
                 "error": error,
                 "parent_subagent_id": parent_subagent_id,
                 "depth": depth,
+                "session_id": session_id,
                 "timestamp": chrono::Utc::now().to_rfc3339()
             }),
         )

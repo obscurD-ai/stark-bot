@@ -47,7 +47,7 @@ impl MessageDispatcher {
 
     /// Build the base system prompt with context from memories and user info
     /// Note: Tool-related instructions are added by the archetype's enhance_system_prompt
-    fn build_system_prompt(
+    pub(crate) fn build_system_prompt(
         &self,
         message: &NormalizedMessage,
         identity_id: &str,

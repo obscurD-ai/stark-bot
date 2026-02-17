@@ -1,0 +1,240 @@
+use crate::ai::multi_agent::Orchestrator;
+use crate::channels::types::NormalizedMessage;
+use crate::models::session_message::MessageRole as DbMessageRole;
+use crate::models::CompletionStatus;
+use crate::telemetry::Watchdog;
+use std::sync::Arc;
+
+use super::MessageDispatcher;
+
+/// Result of attempting to advance to the next task in the queue
+pub(super) enum TaskAdvanceResult {
+    /// Started working on the next task
+    NextTaskStarted,
+    /// No more tasks remain, session should complete
+    AllTasksComplete,
+    /// No pending tasks but queue is in inconsistent state (has non-completed tasks)
+    /// This shouldn't happen in normal operation
+    InconsistentState,
+}
+
+impl MessageDispatcher {
+    /// Save a memory entry when a chat session completes successfully.
+    pub(super) fn save_session_completion_memory(
+        &self,
+        user_input: &str,
+        bot_response: &str,
+        is_safe_mode: bool,
+    ) {
+        let enabled = self.db.get_bot_settings()
+            .map(|s| s.chat_session_memory_generation)
+            .unwrap_or(true);
+        if !enabled { return; }
+
+        if bot_response.is_empty() { return; }
+
+        if let Some(ref store) = self.memory_store {
+            let identity_id = if is_safe_mode { Some("safemode") } else { None };
+            let entry = format!(
+                "\n### Session completed\n**User:** {}\n**Response:** {}\n",
+                user_input.chars().take(500).collect::<String>(),
+                bot_response.chars().take(1000).collect::<String>(),
+            );
+            if let Err(e) = store.append_daily_log(&entry, identity_id) {
+                log::error!("[SESSION_MEMORY] Failed to append daily log: {}", e);
+            }
+        }
+    }
+
+    /// Try to advance to the next task in the queue.
+    /// If a next task exists, marks it as in_progress and broadcasts updates.
+    /// If no tasks remain, marks the session as complete in the database and broadcasts completion.
+    /// Returns TaskAdvanceResult indicating what happened.
+    pub(super) fn advance_to_next_task_or_complete(
+        &self,
+        channel_id: i64,
+        session_id: i64,
+        orchestrator: &mut Orchestrator,
+    ) -> TaskAdvanceResult {
+        if let Some(next_task) = orchestrator.pop_next_task() {
+            log::info!(
+                "[ORCHESTRATED_LOOP] Starting next task: {} - {}",
+                next_task.id,
+                next_task.description
+            );
+            self.broadcast_task_status_change(
+                channel_id,
+                session_id,
+                next_task.id,
+                "in_progress",
+                &next_task.description,
+            );
+            self.broadcast_task_queue_update(channel_id, session_id, orchestrator);
+            TaskAdvanceResult::NextTaskStarted
+        } else if orchestrator.task_queue_is_empty() || orchestrator.all_tasks_complete() {
+            // Queue is empty or all tasks completed - end the session
+            log::info!("[ORCHESTRATED_LOOP] All tasks completed, stopping loop");
+            if let Err(e) = self.db.update_session_completion_status(session_id, CompletionStatus::Complete) {
+                log::error!("[ORCHESTRATED_LOOP] Failed to update session completion status: {}", e);
+            }
+            self.broadcast_session_complete(channel_id, session_id);
+            TaskAdvanceResult::AllTasksComplete
+        } else {
+            // No pending tasks but queue has non-completed tasks (inconsistent state)
+            log::warn!(
+                "[ORCHESTRATED_LOOP] No pending tasks but queue in inconsistent state (not empty, not all complete)"
+            );
+            TaskAdvanceResult::InconsistentState
+        }
+    }
+
+    /// Finalization logic shared by both native and text tool loop paths:
+    /// clearing active skill, saving orchestrator context, updating completion status,
+    /// saving cancellation/max-iteration summaries, building final return value.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn finalize_tool_loop(
+        &self,
+        original_message: &NormalizedMessage,
+        session_id: i64,
+        is_safe_mode: bool,
+        orchestrator: &mut Orchestrator,
+        orchestrator_complete: bool,
+        was_cancelled: bool,
+        waiting_for_user_response: bool,
+        memory_suppressed: bool,
+        last_say_to_user_content: &str,
+        tool_call_log: &[String],
+        final_summary: &str,
+        user_question_content: &str,
+        max_tool_iterations: usize,
+        iterations: usize,
+        watchdog: &Arc<Watchdog>,
+    ) -> Result<(String, bool), String> {
+        // Returns (response_text, already_delivered_via_say_to_user)
+        // Clear active skill when the orchestrator loop completes
+        if orchestrator_complete || was_cancelled {
+            if orchestrator.context().active_skill.is_some() {
+                log::info!("[ORCHESTRATED_LOOP] Clearing active skill on session completion");
+                orchestrator.context_mut().active_skill = None;
+            }
+        }
+
+        // Save orchestrator context for next turn
+        if let Err(e) = self.db.save_agent_context(session_id, orchestrator.context()) {
+            log::warn!("[MULTI_AGENT] Failed to save context for session {}: {}", session_id, e);
+        }
+
+        // Update completion status
+        if was_cancelled {
+            log::info!("[ORCHESTRATED_LOOP] Marking session {} as Cancelled", session_id);
+            if let Err(e) = self.db.update_session_completion_status(session_id, CompletionStatus::Cancelled) {
+                log::error!("[ORCHESTRATED_LOOP] Failed to update session completion status: {}", e);
+            }
+            self.broadcast_session_complete(original_message.channel_id, session_id);
+        } else if orchestrator_complete && !waiting_for_user_response {
+            log::info!("[ORCHESTRATED_LOOP] Marking session {} as Complete", session_id);
+            if let Err(e) = self.db.update_session_completion_status(session_id, CompletionStatus::Complete) {
+                log::error!("[ORCHESTRATED_LOOP] Failed to update session completion status: {}", e);
+            }
+            self.broadcast_session_complete(original_message.channel_id, session_id);
+            if memory_suppressed {
+                log::info!("[ORCHESTRATED_LOOP] Skipping session memory — memory-excluded tool was called");
+            } else {
+                // Prefer say_to_user content for memory, fall back to task_fully_completed summary
+                let memory_content = if !last_say_to_user_content.is_empty() {
+                    last_say_to_user_content
+                } else {
+                    final_summary
+                };
+                self.save_session_completion_memory(
+                    &original_message.text,
+                    memory_content,
+                    is_safe_mode,
+                );
+            }
+        }
+
+        // Save cancellation summary
+        if was_cancelled && !tool_call_log.is_empty() {
+            let summary = format!(
+                "[Session stopped by user. Work completed before stop:]\n{}",
+                tool_call_log.join("\n")
+            );
+            log::info!("[ORCHESTRATED_LOOP] Saving cancellation summary with {} tool calls", tool_call_log.len());
+            if let Err(e) = self.db.add_session_message(
+                session_id,
+                DbMessageRole::Assistant,
+                &summary,
+                None,
+                None,
+                None,
+                None,
+            ) {
+                log::error!("Failed to save cancellation summary: {}", e);
+            }
+        }
+
+        // Emit session_completed reward with real iteration/tool counts
+        // via RewardEmitter for richer scoring (efficiency bonus, iteration penalty).
+        let success = orchestrator_complete && !was_cancelled;
+        watchdog.reward_emitter().session_completed(
+            success,
+            iterations as u32,
+            tool_call_log.len() as u32,
+            max_tool_iterations as u32,
+        );
+
+        // Build final return: (response, already_delivered_via_say_to_user)
+        if waiting_for_user_response {
+            // Save the tool call log to the orchestrator context
+            if !tool_call_log.is_empty() {
+                let context_summary = format!(
+                    "Before asking the user, I already completed these actions:\n{}",
+                    tool_call_log.join("\n")
+                );
+                orchestrator.context_mut().waiting_for_user_context = Some(context_summary);
+                if let Err(e) = self.db.save_agent_context(session_id, orchestrator.context()) {
+                    log::warn!("[MULTI_AGENT] Failed to save context with user_context: {}", e);
+                }
+            }
+            Ok((user_question_content.to_string(), false))
+        } else if !last_say_to_user_content.is_empty() {
+            // say_to_user content IS the final result — already broadcast via tool.result event.
+            // dispatch() will store it as assistant message but should NOT re-broadcast.
+            log::info!("[ORCHESTRATED_LOOP] Returning say_to_user content as final result ({} chars)", last_say_to_user_content.len());
+            Ok((last_say_to_user_content.to_string(), true))
+        } else if orchestrator_complete {
+            Ok((final_summary.to_string(), false))
+        } else if tool_call_log.is_empty() {
+            // Mark session as Failed — hit max iterations with no work done
+            let _ = self.db.update_session_completion_status(session_id, CompletionStatus::Failed);
+            self.broadcast_session_complete(original_message.channel_id, session_id);
+            Err(format!(
+                "Tool loop hit max iterations ({}) without completion",
+                max_tool_iterations
+            ))
+        } else {
+            // Max iterations with work done — mark as Failed (didn't complete normally)
+            let _ = self.db.update_session_completion_status(session_id, CompletionStatus::Failed);
+            self.broadcast_session_complete(original_message.channel_id, session_id);
+            let summary = format!(
+                "[Session hit max iterations. Work completed before limit:]\n{}",
+                tool_call_log.join("\n")
+            );
+            log::info!("[ORCHESTRATED_LOOP] Saving max-iterations summary with {} tool calls", tool_call_log.len());
+            let _ = self.db.add_session_message(
+                session_id,
+                DbMessageRole::Assistant,
+                &summary,
+                None,
+                None,
+                None,
+                None,
+            );
+            Err(format!(
+                "Tool loop hit max iterations ({}). Work has been saved.",
+                max_tool_iterations
+            ))
+        }
+    }
+}

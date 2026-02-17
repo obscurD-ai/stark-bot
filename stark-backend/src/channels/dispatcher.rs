@@ -3471,22 +3471,15 @@ impl MessageDispatcher {
                 }
 
                 if orchestrator_complete {
-                    // Build response from non-empty parts
+                    // Build response from non-empty parts (exclude tool_call_log —
+                    // tool calls are already shown in real-time via events)
                     let mut parts: Vec<&str> = Vec::new();
-                    let tool_log_text = tool_call_log.join("\n");
-                    if !tool_log_text.is_empty() { parts.push(&tool_log_text); }
                     if !final_summary.is_empty() { parts.push(&final_summary); }
                     if !ai_response.content.trim().is_empty() { parts.push(&ai_response.content); }
                     let response = parts.join("\n\n");
                     return Ok((response, false));
                 } else {
-                    // No tool calls but not complete
-                    if tool_call_log.is_empty() {
-                        return Ok((ai_response.content, false));
-                    } else {
-                        let tool_log_text = tool_call_log.join("\n");
-                        return Ok((format!("{}\n\n{}", tool_log_text, ai_response.content), false));
-                    }
+                    return Ok((ai_response.content, false));
                 }
             }
 
@@ -4045,12 +4038,7 @@ impl MessageDispatcher {
                             continue;
                         }
 
-                        if tool_call_log.is_empty() {
-                            final_response = agent_response.body;
-                        } else {
-                            let tool_log_text = tool_call_log.join("\n");
-                            final_response = format!("{}\n\n{}", tool_log_text, agent_response.body);
-                        }
+                        final_response = agent_response.body;
                         break;
                     }
                 }
@@ -4063,12 +4051,7 @@ impl MessageDispatcher {
                         &format!("Parse failed, raw AI response:\n{}", &ai_content[..ai_content.len().min(500)]),
                     ));
 
-                    if tool_call_log.is_empty() {
-                        final_response = ai_content;
-                    } else {
-                        let tool_log_text = tool_call_log.join("\n");
-                        final_response = format!("{}\n\n{}", tool_log_text, ai_content);
-                    }
+                    final_response = ai_content;
                     break;
                 }
             }

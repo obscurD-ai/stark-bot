@@ -1,6 +1,9 @@
 ## TODO 
 
 
+save this plan to  SUPER_ROUTER_REGISTER_UPGRADE.md in the root for now 
+
+
 
  
    

@@ -83,13 +83,15 @@ impl Tool for SayToUserTool {
         self.definition.clone()
     }
 
-    async fn execute(&self, params: Value, _context: &ToolContext) -> ToolResult {
+    async fn execute(&self, params: Value, context: &ToolContext) -> ToolResult {
         let params: SayToUserParams = match serde_json::from_value(params) {
             Ok(p) => p,
             Err(e) => return ToolResult::error(format!("Invalid parameters: {}", e)),
         };
 
-        let mut result = ToolResult::success(params.message);
+        let message = context.registers.expand_templates(&params.message);
+
+        let mut result = ToolResult::success(message);
 
         // Signal to the orchestrator that this completes the task
         if params.finished_task {

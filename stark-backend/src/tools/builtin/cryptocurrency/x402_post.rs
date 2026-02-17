@@ -293,6 +293,7 @@ impl Tool for X402PostTool {
 
             if status.is_success() {
                 if let Ok(json_val) = serde_json::from_str::<Value>(&response_body) {
+                    context.set_register("x402_result", json_val.clone(), "x402_post");
                     return ToolResult::success(
                         serde_json::to_string_pretty(&json_val).unwrap_or(response_body),
                     )
@@ -412,6 +413,7 @@ impl Tool for X402PostTool {
         let amount_formatted = format_usdc(&payment_option.max_amount_required);
 
         let result_content = if let Ok(json_val) = serde_json::from_str::<Value>(&paid_body) {
+            context.set_register("x402_result", json_val.clone(), "x402_post");
             serde_json::to_string_pretty(&json_val).unwrap_or(paid_body.clone())
         } else {
             paid_body

@@ -21,6 +21,8 @@
 //! ```
 
 use ethers::prelude::*;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -292,6 +294,59 @@ impl RegisterStore {
             .map(|age| age > max_age_secs)
             .unwrap_or(true)
     }
+
+    /// Expand `{{register_name}}` and `{{register_name.field}}` templates in text.
+    ///
+    /// - Simple refs like `{{x402_result}}` use `get()` and display the whole value
+    /// - Dotted refs like `{{x402_result.url}}` use `get_field()`
+    /// - Missing registers are left as-is with a log warning
+    pub fn expand_templates(&self, text: &str) -> String {
+        // Fast path: skip regex if no templates
+        if !text.contains("{{") {
+            return text.to_string();
+        }
+
+        static RE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}\}")
+                .expect("valid template regex")
+        });
+
+        RE.replace_all(text, |caps: &regex::Captures| {
+            let full_ref = &caps[1];
+
+            let resolved = if let Some(dot_pos) = full_ref.find('.') {
+                // Dotted path: "register_name.field.subfield"
+                let key = &full_ref[..dot_pos];
+                let field = &full_ref[dot_pos + 1..];
+                self.get_field(key, field)
+            } else {
+                // Simple ref: "register_name"
+                self.get(full_ref)
+            };
+
+            match resolved {
+                Some(value) => value_to_display_string(&value),
+                None => {
+                    log::warn!(
+                        "[REGISTER] Template ref '{{{{{}}}}}' not found, leaving as-is",
+                        full_ref
+                    );
+                    caps[0].to_string()
+                }
+            }
+        })
+        .into_owned()
+    }
+}
+
+/// Convert a JSON value to a display string:
+/// - Strings are unwrapped (no quotes)
+/// - Everything else is compact JSON
+fn value_to_display_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -380,5 +435,92 @@ mod tests {
         let entry = store.get_entry("test").unwrap();
         assert_eq!(entry.source_tool, "my_tool");
         assert!(entry.created_at.elapsed().as_secs() < 1);
+    }
+
+    #[test]
+    fn test_expand_templates_simple() {
+        let store = RegisterStore::new();
+        store.set("greeting", json!("hello world"), "test");
+
+        assert_eq!(
+            store.expand_templates("Say: {{greeting}}"),
+            "Say: hello world"
+        );
+    }
+
+    #[test]
+    fn test_expand_templates_dotted() {
+        let store = RegisterStore::new();
+        store.set(
+            "x402_result",
+            json!({"url": "https://cdn.example.com/image.png", "prompt": "a cat"}),
+            "x402_post",
+        );
+
+        assert_eq!(
+            store.expand_templates("Here is the image: {{x402_result.url}}"),
+            "Here is the image: https://cdn.example.com/image.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_templates_missing_left_as_is() {
+        let store = RegisterStore::new();
+
+        let text = "Missing: {{nonexistent.field}}";
+        assert_eq!(store.expand_templates(text), text);
+    }
+
+    #[test]
+    fn test_expand_templates_no_templates_fast_path() {
+        let store = RegisterStore::new();
+
+        let text = "No templates here";
+        assert_eq!(store.expand_templates(text), text);
+    }
+
+    #[test]
+    fn test_expand_templates_multiple() {
+        let store = RegisterStore::new();
+        store.set(
+            "result",
+            json!({"url": "https://example.com/img.png", "type": "image"}),
+            "test",
+        );
+
+        assert_eq!(
+            store.expand_templates("Type: {{result.type}}, URL: {{result.url}}"),
+            "Type: image, URL: https://example.com/img.png"
+        );
+    }
+
+    #[test]
+    fn test_expand_templates_non_string_value() {
+        let store = RegisterStore::new();
+        store.set("data", json!({"count": 42, "active": true}), "test");
+
+        assert_eq!(store.expand_templates("Count: {{data.count}}"), "Count: 42");
+        assert_eq!(
+            store.expand_templates("Active: {{data.active}}"),
+            "Active: true"
+        );
+    }
+
+    #[test]
+    fn test_expand_templates_whole_object() {
+        let store = RegisterStore::new();
+        store.set("simple", json!({"a": 1}), "test");
+
+        // Whole object reference should produce compact JSON
+        let result = store.expand_templates("Data: {{simple}}");
+        assert!(result.contains("\"a\":1") || result.contains("\"a\": 1"));
+    }
+
+    #[test]
+    fn test_value_to_display_string() {
+        assert_eq!(value_to_display_string(&json!("hello")), "hello");
+        assert_eq!(value_to_display_string(&json!(42)), "42");
+        assert_eq!(value_to_display_string(&json!(true)), "true");
+        assert_eq!(value_to_display_string(&json!(null)), "null");
     }
 }

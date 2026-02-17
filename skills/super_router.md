@@ -94,11 +94,20 @@ The service returns JSON:
 - **type**: The media type (`"image"` or `"video"`)
 - **quality**: The quality tier that was used
 
+**IMPORTANT**: The x402_post response is automatically cached in the `x402_result` register. When sharing the URL with the user, you MUST use `{{x402_result.url}}` in your `say_to_user` message instead of retyping the URL. The URLs contain long SHA256 hashes that get corrupted when retyped — the template is expanded server-side to the exact URL.
+
+**Example say_to_user message:**
+```
+Here is your generated image: {{x402_result.url}}
+```
+
+Other available fields: `{{x402_result.prompt}}`, `{{x402_result.type}}`, `{{x402_result.quality}}`, `{{x402_result.cached}}`
+
 ## Usage Guidelines
 
 1. **Default to medium quality** unless the user asks for something specific (e.g. "make it cheap" → low, "best quality" → high)
 2. **Always confirm the prompt** with the user before generating — each generation costs STARKBOT tokens
-3. **Share the `url`** from the response — it is a direct public link to the generated media
+3. **Use `{{x402_result.url}}`** when sharing the URL — NEVER retype the URL manually
 4. **Cached results are free** — if the exact same prompt + quality was used before, the cached result is returned at no cost
 5. **Default type is image** — if the user doesn't specify, generate an image
 

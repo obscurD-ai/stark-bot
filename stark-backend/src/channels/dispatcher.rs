@@ -1309,6 +1309,25 @@ impl MessageDispatcher {
                 heartbeat_handle.abort();
                 telemetry::clear_active_collector();
 
+                // Safety net: if the session is still Active after a successful response,
+                // mark it Complete. This catches early-return paths in the tool loop
+                // that bypass finalize_tool_loop (e.g., AI responds with text after a
+                // tool error without calling task_fully_completed).
+                match self.db.get_session_completion_status(session.id) {
+                    Ok(status) if !status.should_stop() => {
+                        log::info!(
+                            "[DISPATCH] Session {} still Active after successful response, marking Complete",
+                            session.id
+                        );
+                        let _ = self.db.update_session_completion_status(
+                            session.id,
+                            CompletionStatus::Complete,
+                        );
+                        self.broadcast_session_complete(message.channel_id, session.id);
+                    }
+                    _ => {} // Already finalized (Complete/Failed/Cancelled) or DB error
+                }
+
                 DispatchResult::success(response)
             }
             Err(e) => {

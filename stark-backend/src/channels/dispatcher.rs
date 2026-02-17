@@ -1314,7 +1314,7 @@ impl MessageDispatcher {
                 // that bypass finalize_tool_loop (e.g., AI responds with text after a
                 // tool error without calling task_fully_completed).
                 match self.db.get_session_completion_status(session.id) {
-                    Ok(status) if !status.should_stop() => {
+                    Ok(Some(status)) if !status.should_stop() => {
                         log::info!(
                             "[DISPATCH] Session {} still Active after successful response, marking Complete",
                             session.id
